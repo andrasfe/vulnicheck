@@ -1,0 +1,7 @@
+# Mix of vulnerable and safe packages
+numpy==1.19.0  # vulnerable
+click>=8.1.0  # should be safe
+flask==0.12.0  # vulnerable
+black>=23.0.0  # should be safe
+django==2.2.0  # vulnerable
+pytest>=7.0.0  # should be safe

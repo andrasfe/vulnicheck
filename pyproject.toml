@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vulnicheck-mcp"
+version = "0.1.0"
+description = "MCP server for real-time Python package vulnerability checking"
+authors = [{name = "andrasfe", email = ""}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "fastmcp>=2.0.0",
+    "httpx>=0.24.0",
+    "pydantic>=2.0.0",
+    "packaging>=23.0",
+    "toml>=0.10.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.20.0",
+    "pytest-httpx>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.0.270",
+    "types-toml>=0.10.8",
+]
+
+[project.scripts]
+vulnicheck = "vulnicheck.server:main"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "C90", "UP", "SIM"]
+ignore = ["E501", "C901"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["vulnicheck"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_optional = true
+exclude = [".venv/", "venv/"]
+
+[[tool.mypy.overrides]]
+module = ["mcp.*", "fastmcp.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pydantic._internal._generate_schema"
+ignore_errors = true
