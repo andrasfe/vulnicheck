@@ -15,7 +15,6 @@ A Python-based MCP (Model Context Protocol) server that provides real-time secur
 ### Prerequisites
 
 - Python 3.8 or higher
-- pip (comes with Python)
 
 ### Quick Setup
 
@@ -33,30 +32,7 @@ cd vulnicheck
 ./setup.sh
 ```
 
-#### Option 2: Using venv and pip
-
-```bash
-# Clone the repository
-git clone https://github.com/andrasfe/vulnicheck.git
-cd vulnicheck
-
-# Create a Python virtual environment
-python -m venv .venv
-
-# Activate the virtual environment
-# On macOS/Linux:
-source .venv/bin/activate
-# On Windows:
-# .venv\Scripts\activate
-
-# Install the package in development mode
-pip install -e .
-
-# (Optional) Install development dependencies
-pip install -e ".[dev]"
-```
-
-#### Option 3: Using Docker (No Python Required)
+#### Option 2: Using Docker (No Python Required)
 
 ```bash
 # Clone the repository
@@ -72,20 +48,6 @@ echo '{"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "
 
 See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed Docker instructions.
 
-#### Option 4: Using conda
-
-```bash
-# Clone the repository
-git clone https://github.com/andrasfe/vulnicheck.git
-cd vulnicheck
-
-# Create a conda environment
-conda create -n vulnicheck python=3.9
-conda activate vulnicheck
-
-# Install the package
-pip install -e .
-```
 
 ### Verify Installation
 
@@ -96,10 +58,6 @@ echo '{"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "
 # You should see JSON output like:
 # {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"...","capabilities":...}}
 ```
-
-### For Cursor IDE
-
-See [CURSOR_SETUP.md](CURSOR_SETUP.md) for detailed Cursor IDE integration instructions.
 
 ## Usage
 
@@ -254,25 +212,6 @@ mypy vulnicheck/
 - All external API calls use HTTPS
 
 ## Troubleshooting
-
-### Python Environment Issues
-
-**"python: command not found"**
-- On some systems, use `python3` instead of `python`
-- Check Python installation: `python --version` or `python3 --version`
-
-**"pip: command not found"**
-- Ensure pip is installed: `python -m ensurepip`
-- Or use: `python -m pip` instead of `pip`
-
-**Virtual environment not activating**
-- Windows: Use `\.venv\Scripts\activate` (note the backslashes)
-- macOS/Linux: Use `source .venv/bin/activate`
-- PowerShell: May need to run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
-
-**Permission errors**
-- Don't use `sudo` with pip in virtual environments
-- If global install needed: `pip install --user vulnicheck`
 
 ### API Issues
 
