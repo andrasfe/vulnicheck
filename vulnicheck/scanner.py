@@ -15,10 +15,15 @@ class DependencyScanner:
 
     async def scan_file(self, file_path: str) -> Dict[str, List[Any]]:
         """Scan a dependency file for vulnerabilities."""
-        path = Path(file_path)
+        path = Path(file_path).resolve()  # Resolve to absolute path
 
-        if not path.exists():
+        # Security: Ensure it's a file, not a directory
+        if not path.is_file():
             raise FileNotFoundError(f"File not found: {path}")
+
+        # Security: Limit file size to 10MB
+        if path.stat().st_size > 10 * 1024 * 1024:
+            raise ValueError(f"File too large (max 10MB): {path}")
 
         # Parse dependencies based on file type
         if path.name == "requirements.txt":

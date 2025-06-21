@@ -1,6 +1,6 @@
 """Tests for GHSA to CVE mapping functionality."""
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
