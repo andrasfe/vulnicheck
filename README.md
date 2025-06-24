@@ -10,76 +10,60 @@ A Python-based MCP (Model Context Protocol) server that provides real-time secur
 - **FastMCP integration** for simplified Model Context Protocol implementation
 - **Actionable security recommendations** with upgrade suggestions
 
-## Installation
+## Quick Start
 
-### Prerequisites
+**Requirements:** Docker and Docker Compose
 
-- Python 3.8 or higher
-
-### Quick Setup
-
-#### Option 1: Using uv (Recommended)
-
+1. **Install and run:**
 ```bash
-# Install uv package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clone the repository
 git clone https://github.com/andrasfe/vulnicheck.git
 cd vulnicheck
-
-# Run the automated setup script
 ./setup.sh
 ```
 
-#### Option 2: Using Docker (No Python Required)
+2. **Configure your IDE:**
 
+**Claude Desktop:**
 ```bash
-# Clone the repository
-git clone https://github.com/andrasfe/vulnicheck.git
-cd vulnicheck
-
-# Build and run with Docker Compose
-docker-compose up -d --build
-
-# Verify it's working
-echo '{"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "0.1.0", "capabilities": {}, "clientInfo": {"name": "test", "version": "0.1.0"}}, "id": 1}' | docker exec -i vulnicheck-mcp vulnicheck
+claude mcp add vulnicheck --transport sse http://localhost:3000/sse
 ```
 
-See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed Docker instructions.
-
-
-### Verify Installation
-
-```bash
-# Test that the server starts correctly
-echo '{"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "0.1.0", "capabilities": {}, "clientInfo": {"name": "test", "version": "0.1.0"}}, "id": 1}' | vulnicheck
-
-# You should see JSON output like:
-# {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"...","capabilities":...}}
-```
-
-## Usage
-
-### Running the MCP Server
-
-```bash
-vulnicheck
-```
-
-### MCP Configuration
-
-Add the following to your MCP client configuration (e.g., for Cursor IDE):
-
+**VS Code / Cursor:**
+Add to your MCP settings:
 ```json
 {
   "mcpServers": {
     "vulnicheck": {
-      "command": "vulnicheck",
-      "args": []
+      "url": "http://localhost:3000"
     }
   }
 }
+```
+
+## Usage
+
+Once the service is running and your IDE is configured, you can interact with VulniCheck using natural language:
+
+- "Check if numpy has any vulnerabilities"
+- "Scan my requirements.txt file for security issues"
+- "Get details about CVE-2024-3772"
+- "Check all installed packages for vulnerabilities"
+
+### Managing the Service
+
+```bash
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+
+# Restart the service
+docker-compose restart
+
+# Rebuild after updates
+git pull
+./setup.sh
 ```
 
 ## Available Tools
@@ -166,42 +150,69 @@ Found 3 vulnerabilities
 **Recommendation**: Update to a patched version
 ```
 
-## API Rate Limits
+## Configuration
 
-### OSV.dev
-- **No authentication required**
+Create a `.env` file in the project root for optional configuration:
+
+```env
+# NVD API Key (recommended for better rate limits)
+NVD_API_KEY=your-api-key-here
+
+# Custom port (default: 3000)
+MCP_PORT=3001
+
+# Cache TTL in seconds (default: 900)
+CACHE_TTL=1800
+```
+
+### API Rate Limits
+
+**OSV.dev**
+- No authentication required
 - Free and open API
-- Reasonable rate limits for normal usage
 
-### NVD (National Vulnerability Database)
-- **Works without API key** but with strict limits:
-  - Without key: 5 requests per 30 seconds
-  - With key: 50 requests per 30 seconds (10x more!)
-- **Get a free API key**: https://nvd.nist.gov/developers/request-an-api-key
-- Set the key: `export NVD_API_KEY=your-key-here`
-
-**Note**: The server automatically handles rate limiting to prevent hitting API limits.
+**NVD (National Vulnerability Database)**
+- Without API key: 5 requests per 30 seconds
+- With API key: 50 requests per 30 seconds (10x more!)
+- Get a free key at: https://nvd.nist.gov/developers/request-an-api-key
 
 ## Development
+
+### Local Development Setup
+
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install in development mode
+pip install -e ".[dev]"
+```
 
 ### Running Tests
 
 ```bash
-uv pip install -e ".[dev]"
-pytest
+# Run unit tests
+make test-unit
+
+# Run all tests
+make test
+
+# Run with coverage
+make test-coverage
 ```
 
 ### Code Quality
 
 ```bash
+# Run all checks (lint + type checking)
+make lint
+
+# Auto-fix issues
+make lint-fix
+
 # Format code
-black vulnicheck/
-
-# Lint
-ruff check vulnicheck/
-
-# Type checking
-mypy vulnicheck/
+make format
 ```
 
 ## Security Considerations
@@ -213,15 +224,40 @@ mypy vulnicheck/
 
 ## Troubleshooting
 
+### Service Issues
+
+**Port already in use**
+```bash
+# Change port in .env file
+echo "MCP_PORT=3001" >> .env
+./setup.sh
+```
+
+**Service won't start**
+```bash
+# Check logs
+docker-compose logs
+
+# Rebuild from scratch
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+**IDE can't connect**
+- Ensure service is running: `docker-compose ps`
+- Check firewall settings for port 3000
+- Try connecting directly: `curl http://localhost:3000`
+
 ### API Issues
 
 **Rate limiting errors**
 - Get a free NVD API key: https://nvd.nist.gov/developers/request-an-api-key
-- Add to environment: `export NVD_API_KEY=your-key`
+- Add to `.env` file: `NVD_API_KEY=your-key-here`
 
 **Network timeout errors**
 - Check internet connection
-- Increase timeout: `export REQUEST_TIMEOUT=60`
+- Increase timeout in `.env`: `REQUEST_TIMEOUT=60`
 
 ## License
 

@@ -23,21 +23,33 @@ logger = logging.getLogger("vulnicheck")
 # Initialize FastMCP server
 mcp: FastMCP = FastMCP("vulnicheck-mcp")
 
-# Initialize clients directly
-osv_client = OSVClient()
-nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
-scanner = DependencyScanner(osv_client, nvd_client)
+# Initialize clients lazily to avoid connection issues during startup
+osv_client = None
+nvd_client = None
+scanner = None
+
+def _ensure_clients_initialized() -> None:
+    """Ensure clients are initialized when needed."""
+    global osv_client, nvd_client, scanner
+    if osv_client is None:
+        osv_client = OSVClient()
+        nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
+        scanner = DependencyScanner(osv_client, nvd_client)
 
 
 @lru_cache(maxsize=1000)
 def cached_query_package(package_name: str, version: Optional[str] = None) -> List[Any]:
     """Query package with caching."""
+    _ensure_clients_initialized()
+    assert osv_client is not None
     return osv_client.query_package(package_name, version)
 
 
 @lru_cache(maxsize=500)
 def cached_get_cve(cve_id: str) -> Optional[Any]:
     """Get CVE with caching."""
+    _ensure_clients_initialized()
+    assert nvd_client is not None
     return nvd_client.get_cve(cve_id)
 
 
@@ -223,6 +235,7 @@ async def scan_dependencies(file_path: str, include_details: bool = False) -> st
     try:
         logger.info(f"Starting scan of {file_path}")
         # Use the global scanner instance
+        assert scanner is not None
         results = await scanner.scan_file(file_path)
         logger.info(f"Scan complete, found {len(results)} packages")
 
@@ -331,13 +344,64 @@ async def scan_dependencies(file_path: str, include_details: bool = False) -> st
 
 
 @mcp.tool
+async def scan_installed_packages() -> str:
+    """Scan currently installed Python packages for vulnerabilities."""
+    try:
+        logger.info("Starting scan of installed packages")
+        _ensure_clients_initialized()
+        assert scanner is not None
+        results = await scanner.scan_installed()
+        logger.info(f"Scan complete, found {len(results)} vulnerable packages")
+
+        # Count vulnerabilities
+        total_vulns = sum(len(v) for v in results.values())
+
+        lines = [
+            "# Installed Packages Scan",
+            f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            "",
+            "## Summary",
+            f"- Total packages: {sum(1 for _ in __import__('importlib.metadata').metadata.distributions())}",
+            f"- Vulnerable packages: {len(results)}",
+            f"- Total vulnerabilities: {total_vulns}",
+            "",
+        ]
+
+        if not results:
+            lines.append("No vulnerabilities found in installed packages!")
+            return "\n".join(lines)
+
+        lines.append("## Vulnerable Packages")
+        for pkg, vulns in sorted(results.items()):
+            lines.extend([f"\n### {pkg}", f"Found: {len(vulns)} vulnerabilities"])
+
+            # Show up to 3 vulnerabilities
+            for v in vulns[:3]:
+                lines.append(f"- {v.id}: {_get_severity(v)}")
+                if v.summary:
+                    lines.append(f"  {v.summary[:80]}...")
+
+            if len(vulns) > 3:
+                lines.append(f"  ... and {len(vulns) - 3} more")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error scanning installed packages: {e}")
+        return f"Error: {str(e)}"
+
+
+@mcp.tool
 async def get_cve_details(cve_id: str) -> str:
     """Get detailed information about a specific CVE or GHSA."""
     try:
+        _ensure_clients_initialized()
+
         # Check if this is a GHSA ID
         if cve_id.upper().startswith("GHSA-"):
             # Try to find the CVE alias from OSV
             # Use the global osv_client instance
+            assert osv_client is not None
             vuln = osv_client.get_vulnerability_by_id(cve_id)
             if vuln:
                 # Look for CVE in aliases
@@ -367,6 +431,7 @@ async def get_cve_details(cve_id: str) -> str:
             if not cve:
                 # If not in NVD, try OSV as fallback
                 # Use the global osv_client instance
+                assert osv_client is not None
                 vuln = osv_client.get_vulnerability_by_id(cve_id)
                 if vuln:
                     logger.info(f"{cve_id} not found in NVD, using OSV data")
@@ -411,29 +476,33 @@ async def get_cve_details(cve_id: str) -> str:
 
 def main() -> None:
     """Run the MCP server."""
-    # Print startup info to stderr
-    print("VulniCheck MCP Server v0.1.0", file=sys.stderr)
-    print("=" * 50, file=sys.stderr)
+    # Get port from environment
+    port = int(os.environ.get("MCP_PORT", "3000"))
+    
+    # Print startup info
+    print("VulniCheck MCP Server v0.1.0")
+    print("=" * 50)
 
     if os.environ.get("NVD_API_KEY"):
-        print("NVD API key found", file=sys.stderr)
+        print("NVD API key found")
     else:
-        print("No NVD API key (rate limits apply)", file=sys.stderr)
-        print(
-            "   Get one at: https://nvd.nist.gov/developers/request-an-api-key",
-            file=sys.stderr,
-        )
+        print("No NVD API key (rate limits apply)")
+        print("   Get one at: https://nvd.nist.gov/developers/request-an-api-key")
 
-    print("=" * 50, file=sys.stderr)
-    print("Ready for connections...", file=sys.stderr)
+    print(f"HTTP Port: {port}")
+    print("=" * 50)
+    print("Ready for connections...")
 
     try:
-        mcp.run()
+        # Always run as HTTP/SSE server
+        mcp.run(transport="sse", port=port, host="0.0.0.0")
     except KeyboardInterrupt:
-        print("\nShutting down...", file=sys.stderr)
+        print("\nShutting down...")
         sys.exit(0)
     except Exception as e:
-        print(f"\nError: {e}", file=sys.stderr)
+        print(f"MCP server error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 

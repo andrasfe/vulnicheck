@@ -1,52 +1,51 @@
 #!/bin/bash
-# Quick setup script for VulniCheck
+# Setup script for VulniCheck MCP Service
 
-echo "VulniCheck Setup"
-echo "================"
+echo "Setting up VulniCheck MCP..."
 echo ""
-
-# Check if uv is installed
-if ! command -v uv &> /dev/null; then
-    echo "ERROR: uv is not installed. Please install it first:"
-    echo "   curl -LsSf https://astral.sh/uv/install.sh | sh"
-    exit 1
-fi
-
-# Create virtual environment
-echo "Creating virtual environment..."
-uv venv
-
-# Activate virtual environment
-source .venv/bin/activate
-
-# Install dependencies
-echo "Installing dependencies..."
-uv pip install -e ".[dev]"
 
 # Check for .env file
-if [ ! -f .env ]; then
-    echo ""
-    echo "Creating .env file from template..."
-    cp .env.example .env
-    echo "✅ Created .env file"
-    echo ""
-    echo "OPTIONAL but RECOMMENDED:"
-    echo "   Get a free NVD API key for 10x higher rate limits:"
-    echo "   https://nvd.nist.gov/developers/request-an-api-key"
-    echo ""
-    echo "   Then add it to your .env file:"
-    echo "   NVD_API_KEY=your-key-here"
-else
-    echo "✅ .env file already exists"
+if [ -f .env ]; then
+    echo "Loading environment from .env file..."
+    export $(cat .env | grep -v '^#' | xargs)
 fi
 
-echo ""
-echo "Setup complete! 🎉"
-echo ""
-echo "To run the MCP server:"
-echo "  source .venv/bin/activate"
-echo "  vulnicheck"
-echo ""
-echo "To run tests:"
-echo "  pytest -m 'not integration'  # Unit tests only"
-echo "  ./run_integration_tests.sh   # Integration tests"
+# Build the Docker image
+echo "Building Docker image..."
+docker-compose build || exit 1
+
+# Stop any existing service
+echo "Stopping any existing service..."
+docker-compose down 2>/dev/null
+
+# Start the service
+echo "Starting VulniCheck service..."
+docker-compose up -d || exit 1
+
+# Wait for service to be ready
+echo "Waiting for service to start..."
+sleep 3
+
+# Check if service is running
+if docker-compose ps | grep -q "vulnicheck-mcp.*Up"; then
+    echo ""
+    echo "✅ VulniCheck MCP is running!"
+    echo ""
+    echo "Service URL: http://localhost:${MCP_PORT:-3000}"
+    echo ""
+    echo "Configure your IDE to connect to: http://localhost:${MCP_PORT:-3000}"
+    echo ""
+    echo "Examples:"
+    echo "  Claude:  claude mcp add vulnicheck --transport sse http://localhost:${MCP_PORT:-3000}/sse"
+    echo "  VS Code: Add http://localhost:${MCP_PORT:-3000} to MCP servers"
+    echo "  Cursor:  Add http://localhost:${MCP_PORT:-3000} to MCP settings"
+    echo ""
+    echo "Useful commands:"
+    echo "  View logs:    docker-compose logs -f"
+    echo "  Stop service: docker-compose down"
+    echo "  Restart:      docker-compose restart"
+    echo ""
+else
+    echo "❌ Failed to start service. Check logs with: docker-compose logs"
+    exit 1
+fi

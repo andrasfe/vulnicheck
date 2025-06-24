@@ -96,7 +96,16 @@ class DependencyScanner:
                     spec = f"~={spec[1:]}"
                 deps.append((name, spec))
             elif isinstance(spec, dict) and "version" in spec:
-                deps.append((name, spec["version"]))
+                version = spec["version"]
+                # Convert poetry operators in version
+                if version.startswith("^"):
+                    version = f">={version[1:]}"
+                elif version.startswith("~"):
+                    version = f"~={version[1:]}"
+                else:
+                    # Only add == if there's no operator
+                    version = f"=={version}"
+                deps.append((name, version))
 
         return deps
 
@@ -229,3 +238,20 @@ class DependencyScanner:
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
+
+    async def scan_installed(self) -> Dict[str, List[Any]]:
+        """Scan installed Python packages for vulnerabilities."""
+        try:
+            import importlib.metadata as metadata
+        except ImportError:
+            import importlib_metadata as metadata  # type: ignore
+
+        results = {}
+        for dist in metadata.distributions():
+            name = dist.name
+            version = dist.version
+            if name and version:
+                vulns = await self._check_exact_version(name, version)
+                if vulns:
+                    results[f"{name}=={version}"] = vulns
+        return results

@@ -27,8 +27,8 @@ RUN . .venv/bin/activate && uv pip install -e .
 ENV PATH="/app/.venv/bin:${PATH}"
 ENV PYTHONUNBUFFERED=1
 
-# Expose the stdio interface
-EXPOSE 8080
+# Expose the default port
+EXPOSE 3000
 
 # Run the MCP server
-CMD ["vulnicheck"]
+ENTRYPOINT ["python", "-m", "vulnicheck.server"]

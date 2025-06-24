@@ -133,7 +133,7 @@ scipy = "~1.7.0"
             assert len(results["numpy==1.19.0"]) == 1
             assert len(results["flask>=2.0.0"]) == 0
             assert len(results["django>=3.2"]) == 1  # Poetry ^ converted to >=
-            assert len(results["pandas1.3.0"]) == 0
+            assert len(results["pandas==1.3.0"]) == 0
             assert len(results["scipy~=1.7.0"]) == 0  # Poetry ~ converted to ~=
 
         finally:
@@ -293,11 +293,42 @@ package5 = {git = "https://github.com/test/repo.git"}
                 deps = scanner._parse_pyproject(Path(f.name))
 
                 # Check version conversions
-                assert ("package1", ">=1.2.3") in deps
-                assert ("package2", "~=1.2.3") in deps
-                assert ("package3", "1.2.3") in deps
-                assert ("package4", "^2.0.0") in deps
+                assert ("package1", ">=1.2.3") in deps  # ^ converted to >=
+                assert ("package2", "~=1.2.3") in deps   # ~ converted to ~=
+                assert ("package3", "1.2.3") in deps     # plain version
+                assert ("package4", ">=2.0.0") in deps   # ^ in dict converted to >=
                 # package5 with git dependency might not be included
 
             finally:
                 os.unlink(f.name)
+
+    @pytest.mark.asyncio
+    async def test_scan_installed(self, scanner, mock_osv_client):
+        # Mock importlib.metadata.distributions
+        mock_dist1 = Mock()
+        mock_dist1.name = "vulnerable-package"
+        mock_dist1.version = "1.0.0"
+
+        mock_dist2 = Mock()
+        mock_dist2.name = "safe-package"
+        mock_dist2.version = "2.0.0"
+
+        mock_vuln = Mock()
+        mock_vuln.id = "GHSA-test"
+
+        # Mock check_exact_version to return vulnerabilities for first package only
+        async def mock_check_exact(name, version):
+            if name == "vulnerable-package":
+                return [mock_vuln]
+            return []
+
+        scanner._check_exact_version = mock_check_exact
+
+        with patch("importlib.metadata.distributions") as mock_distributions:
+            mock_distributions.return_value = [mock_dist1, mock_dist2]
+
+            results = await scanner.scan_installed()
+
+            assert "vulnerable-package==1.0.0" in results
+            assert len(results["vulnerable-package==1.0.0"]) == 1
+            assert "safe-package==2.0.0" not in results

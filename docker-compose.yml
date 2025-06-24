@@ -9,8 +9,9 @@ services:
       - NVD_API_KEY=${NVD_API_KEY:-}
       - CACHE_TTL=${CACHE_TTL:-900}
       - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-30}
-    stdin_open: true
-    tty: true
+      - MCP_PORT=${MCP_PORT:-3000}
+    ports:
+      - "${MCP_PORT:-3000}:${MCP_PORT:-3000}"
     restart: unless-stopped
     # For development - mount the source code
     # volumes:
