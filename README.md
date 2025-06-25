@@ -2,11 +2,22 @@
 
 A Python-based MCP (Model Context Protocol) server that provides real-time security advice about Python modules by querying authoritative vulnerability databases.
 
+## DISCLAIMER
+
+The information provided by this software and accompanying materials (including but not limited to vulnerability data obtained from the NVD, CWE, OSV, and other public sources) is provided "AS IS" and "AS AVAILABLE" without warranty of any kind, either express or implied. The authors, contributors, and distributors of this software expressly disclaim all warranties, including but not limited to the implied warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+The authors and distributors do not guarantee the accuracy, completeness, timeliness, or reliability of the information provided. Users are solely responsible for verifying and validating the information before relying on it. Under no circumstances shall the authors, contributors, or distributors be liable for any direct, indirect, incidental, consequential, or special damages, including but not limited to loss of data, loss of profits, or business interruption, arising from the use of this software or the information contained herein, even if advised of the possibility of such damages.
+
+By using this software and its associated data, you acknowledge and agree to assume all risks associated with its use.
+
+This software incorporates or references data from publicly available sources, including the National Vulnerability Database (NVD), Common Weakness Enumeration (CWE), and Open Source Vulnerabilities (OSV), which are provided under their respective public licenses and disclaimers.
+
 ## Features
 
 - **Real-time vulnerability checking** for Python packages using OSV.dev and NVD APIs
 - **Dependency scanning** for `requirements.txt` and `pyproject.toml` files
 - **Detailed CVE information** including CVSS scores and severity ratings
+- **CWE (Common Weakness Enumeration) mapping** for better understanding of vulnerability types
 - **FastMCP integration** for simplified Model Context Protocol implementation
 - **Actionable security recommendations** with upgrade suggestions
 
@@ -34,7 +45,7 @@ Add to your MCP settings:
 {
   "mcpServers": {
     "vulnicheck": {
-      "url": "http://localhost:3000"
+      "url": "http://localhost:3000/sse"
     }
   }
 }
@@ -139,10 +150,12 @@ Found 3 vulnerabilities
 **Summary**: NULL Pointer Dereference in NumPy
 **Severity**: HIGH
 **CVE IDs**: CVE-2021-41495
+**CWE**: CWE-476
 
 #### CVE-2021-41495 Details:
 - CVSS Score: 7.5
 - Description: NumPy before 1.22.0 contains a null pointer dereference...
+- CWE: CWE-476 (NULL Pointer Dereference)
 
 **References**:
 - https://github.com/numpy/numpy/security/advisories/GHSA-fpfv-jqm9-f5jm

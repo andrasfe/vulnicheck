@@ -18,6 +18,42 @@ class Vulnerability(BaseModel):
     severity: List[Dict[str, Any]] = Field(default_factory=list)
     references: List[Dict[str, Any]] = Field(default_factory=list)
 
+    @property
+    def cwe_ids(self) -> List[str]:
+        """Extract CWE IDs from database_specific field."""
+        cwe_ids = []
+
+        # OSV.dev sometimes stores CWE data in database_specific
+        if self.database_specific:
+            # Check for direct CWE field
+            if "cwe_ids" in self.database_specific:
+                cwe_ids.extend(self.database_specific["cwe_ids"])
+
+            # Check for CWE in severity_data (some databases use this)
+            if "severity_data" in self.database_specific:
+                severity_data = self.database_specific["severity_data"]
+                if isinstance(severity_data, dict) and "cwe" in severity_data:
+                    if isinstance(severity_data["cwe"], list):
+                        cwe_ids.extend(severity_data["cwe"])
+                    else:
+                        cwe_ids.append(str(severity_data["cwe"]))
+
+        # Also check severity field for CWE data
+        for sev in self.severity:
+            if isinstance(sev, dict) and sev.get("type") == "CWE" and "score" in sev:
+                cwe_ids.append(f"CWE-{sev['score']}")
+
+        # Remove duplicates and ensure proper format
+        unique_cwes = []
+        for cwe in cwe_ids:
+            cwe_str = str(cwe)
+            if not cwe_str.startswith("CWE-"):
+                cwe_str = f"CWE-{cwe_str}"
+            if cwe_str not in unique_cwes:
+                unique_cwes.append(cwe_str)
+
+        return unique_cwes
+
 
 class OSVClient:
     BASE_URL = "https://api.osv.dev/v1"

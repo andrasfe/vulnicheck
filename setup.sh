@@ -10,9 +10,9 @@ if [ -f .env ]; then
     export $(cat .env | grep -v '^#' | xargs)
 fi
 
-# Build the Docker image
+# Build the Docker image (force rebuild to pick up code changes)
 echo "Building Docker image..."
-docker-compose build || exit 1
+docker-compose build --no-cache || exit 1
 
 # Stop any existing service
 echo "Stopping any existing service..."

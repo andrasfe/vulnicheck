@@ -38,6 +38,7 @@ class CVEDetail(BaseModel):
     descriptions: List[CVEDescription] = Field(default_factory=list)
     metrics: Dict[str, Any] = Field(default_factory=dict)
     references: List[CVEReference] = Field(default_factory=list)
+    weaknesses: List[Dict[str, Any]] = Field(default_factory=list)
 
     @property
     def description(self) -> str:
@@ -91,6 +92,32 @@ class CVEDetail(BaseModel):
         elif self.cvss_v2:
             return self.cvss_v2.baseScore
         return 0.0
+
+    @property
+    def cwe_ids(self) -> List[str]:
+        """Extract CWE IDs from weaknesses field."""
+        cwe_ids = []
+
+        for weakness in self.weaknesses:
+            if isinstance(weakness, dict):
+                # NVD API structure has description array with CWE data
+                descriptions = weakness.get("description", [])
+                for desc in descriptions:
+                    if isinstance(desc, dict) and desc.get("lang") == "en":
+                        value = desc.get("value", "")
+                        # CWE IDs in NVD are typically in format "CWE-XXX"
+                        if value.startswith("CWE-"):
+                            cwe_ids.append(value)
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_cwes = []
+        for cwe in cwe_ids:
+            if cwe not in seen:
+                seen.add(cwe)
+                unique_cwes.append(cwe)
+
+        return unique_cwes
 
 
 class NVDClient:
