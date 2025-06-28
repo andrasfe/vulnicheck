@@ -1,6 +1,6 @@
 # VulniCheck MCP Server
 
-A Python-based MCP (Model Context Protocol) server that provides real-time security advice about Python modules by querying authoritative vulnerability databases.
+A Python-based MCP (Model Context Protocol) server that provides real-time security advice about Python modules by querying multiple authoritative vulnerability databases including OSV.dev, NVD (National Vulnerability Database), and GitHub Advisory Database. 
 
 ## DISCLAIMER
 
@@ -14,7 +14,8 @@ This software incorporates or references data from publicly available sources, i
 
 ## Features
 
-- **Real-time vulnerability checking** for Python packages using OSV.dev and NVD APIs
+- **Real-time vulnerability checking** for Python packages using OSV.dev, NVD, and GitHub Advisory Database APIs
+- **Comprehensive coverage** by querying multiple authoritative vulnerability databases
 - **Dependency scanning** for `requirements.txt` and `pyproject.toml` files
 - **Detailed CVE information** including CVSS scores and severity ratings
 - **CWE (Common Weakness Enumeration) mapping** for better understanding of vulnerability types
@@ -117,16 +118,24 @@ Scan a requirements file for vulnerabilities in all dependencies.
 
 ### 3. get_cve_details
 
-Get detailed information about a specific CVE.
+Get detailed information about a specific CVE or GHSA advisory.
 
 **Parameters:**
-- `cve_id` (required): CVE identifier (e.g., CVE-2021-12345)
+- `cve_id` (required): CVE identifier (e.g., CVE-2021-12345) or GHSA identifier (e.g., GHSA-1234-5678-9abc)
 
 **Example:**
 ```json
 {
   "tool": "get_cve_details",
   "cve_id": "CVE-2021-41495"
+}
+```
+
+**Example with GHSA:**
+```json
+{
+  "tool": "get_cve_details",
+  "cve_id": "GHSA-fpfv-jqm9-f5jm"
 }
 ```
 
@@ -188,6 +197,13 @@ CACHE_TTL=1800
 - Without API key: 5 requests per 30 seconds
 - With API key: 50 requests per 30 seconds (10x more!)
 - Get a free key at: https://nvd.nist.gov/developers/request-an-api-key
+
+**GitHub Advisory Database**
+- Without token: 60 requests per hour
+- With token: 5,000 requests per hour
+- Get a free GitHub token at: https://github.com/settings/tokens
+
+**Note**: The server automatically handles rate limiting to prevent hitting API limits.
 
 ## Development
 
@@ -267,6 +283,8 @@ docker-compose up -d
 **Rate limiting errors**
 - Get a free NVD API key: https://nvd.nist.gov/developers/request-an-api-key
 - Add to `.env` file: `NVD_API_KEY=your-key-here`
+- Get a GitHub token: https://github.com/settings/tokens
+- Add to `.env` file: `GITHUB_TOKEN=your-token-here`
 
 **Network timeout errors**
 - Check internet connection

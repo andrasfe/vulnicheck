@@ -1,4 +1,5 @@
 """Tests for lock file parsing functionality."""
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

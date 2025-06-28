@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP
 
+from .github_client import GitHubClient
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
 from .scanner import DependencyScanner
@@ -14,9 +15,9 @@ from .scanner import DependencyScanner
 # Configure logging to stderr to avoid interfering with JSON-RPC on stdout
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(asctime)s] %(name)s %(levelname)s: %(message)s',
-    datefmt='%H:%M:%S',
-    stream=sys.stderr
+    format="[%(asctime)s] %(name)s %(levelname)s: %(message)s",
+    datefmt="%H:%M:%S",
+    stream=sys.stderr,
 )
 logger = logging.getLogger("vulnicheck")
 
@@ -26,15 +27,17 @@ mcp: FastMCP = FastMCP("vulnicheck-mcp")
 # Initialize clients lazily to avoid connection issues during startup
 osv_client = None
 nvd_client = None
+github_client = None
 scanner = None
 
 def _ensure_clients_initialized() -> None:
     """Ensure clients are initialized when needed."""
-    global osv_client, nvd_client, scanner
+    global osv_client, nvd_client, github_client, scanner
     if osv_client is None:
         osv_client = OSVClient()
         nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
-        scanner = DependencyScanner(osv_client, nvd_client)
+        github_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN"))
+        scanner = DependencyScanner(osv_client, nvd_client, github_client)
 
 
 @lru_cache(maxsize=1000)
@@ -151,6 +154,40 @@ async def check_package_vulnerabilities(
 
     try:
         vulns = cached_query_package(package_name, version)
+
+        # Also check GitHub Advisory Database
+        _ensure_clients_initialized()
+        assert github_client is not None
+        try:
+            github_advisories = github_client.search_advisories(package_name, version)
+            # Convert GitHub advisories to a format compatible with OSV
+            for advisory in github_advisories:
+                # Create a mock OSV vulnerability object
+                vuln = type(
+                    "obj",
+                    (object,),
+                    {
+                        "id": advisory.ghsa_id,
+                        "aliases": [advisory.cve_id] if advisory.cve_id else [],
+                        "summary": advisory.summary,
+                        "details": advisory.description,
+                        "published": advisory.published_at,
+                        "modified": advisory.updated_at,
+                        "severity": [
+                            {
+                                "type": "CVSS_V3",
+                                "score": float(advisory.cvss.score.split("/")[-1])
+                                if advisory.cvss and "/" in advisory.cvss.score
+                                else 0,
+                            }
+                        ],
+                        "affected": advisory.vulnerabilities,
+                        "references": [{"url": ref} for ref in advisory.references],
+                    },
+                )()
+                vulns.append(vuln)
+        except Exception as e:
+            logger.debug(f"GitHub API error: {e}")
 
         if not vulns:
             return f"⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.\n\nNo vulnerabilities found for {package_name}{f' v{version}' if version else ''}"
@@ -303,11 +340,13 @@ async def scan_dependencies(file_path: str, include_details: bool = False) -> st
                 for v in vulns[:5]:
                     if include_details:
                         # Include full vulnerability details inline
-                        lines.extend([
-                            f"\n#### {v.id}",
-                            f"**Severity**: {_get_severity(v)}",
-                            f"**Summary**: {v.summary or 'No summary available'}",
-                        ])
+                        lines.extend(
+                            [
+                                f"\n#### {v.id}",
+                                f"**Severity**: {_get_severity(v)}",
+                                f"**Summary**: {v.summary or 'No summary available'}",
+                            ]
+                        )
 
                         # Add aliases (including CVE IDs)
                         if v.aliases:
@@ -317,7 +356,10 @@ async def scan_dependencies(file_path: str, include_details: bool = False) -> st
                         affected_versions = []
                         for affected in v.affected:
                             pkg_info = affected.get("package", {})
-                            if pkg_info.get("name", "").lower() == pkg.split("==")[0].split(">=")[0].lower():
+                            if (
+                                pkg_info.get("name", "").lower()
+                                == pkg.split("==")[0].split(">=")[0].lower()
+                            ):
                                 versions = affected.get("versions", [])
                                 ranges = affected.get("ranges", [])
                                 if versions:
@@ -327,13 +369,19 @@ async def scan_dependencies(file_path: str, include_details: bool = False) -> st
                                         events = r.get("events", [])
                                         for event in events:
                                             if "introduced" in event:
-                                                affected_versions.append(f">={event['introduced']}")
+                                                affected_versions.append(
+                                                    f">={event['introduced']}"
+                                                )
                                             if "fixed" in event:
-                                                affected_versions.append(f"<{event['fixed']}")
+                                                affected_versions.append(
+                                                    f"<{event['fixed']}"
+                                                )
 
                         if affected_versions:
                             affected_versions = sorted(set(affected_versions))[:10]
-                            lines.append(f"**Affected versions**: {', '.join(affected_versions)}")
+                            lines.append(
+                                f"**Affected versions**: {', '.join(affected_versions)}"
+                            )
                             if len(set(affected_versions)) > 10:
                                 lines.append("  ... and more versions")
 
@@ -440,7 +488,66 @@ async def get_cve_details(cve_id: str) -> str:
 
         # Check if this is a GHSA ID
         if cve_id.upper().startswith("GHSA-"):
-            # Try to find the CVE alias from OSV
+            # Try GitHub Advisory Database first
+            try:
+                assert github_client is not None
+                github_advisory = github_client.get_advisory_by_id(cve_id)
+                if github_advisory:
+                    lines = [
+                        f"# {github_advisory.ghsa_id}",
+                        "",
+                    ]
+
+                    if github_advisory.cve_id:
+                        lines.append(f"**CVE**: {github_advisory.cve_id}")
+
+                    lines.extend(
+                        [
+                            f"**Severity**: {github_advisory.severity}",
+                            f"**Published**: {github_advisory.published_at.strftime('%Y-%m-%d') if github_advisory.published_at else 'Unknown'}",
+                            "",
+                            "## Summary",
+                            github_advisory.summary,
+                            "",
+                        ]
+                    )
+
+                    if github_advisory.description:
+                        lines.extend(
+                            [
+                                "## Description",
+                                github_advisory.description,
+                                "",
+                            ]
+                        )
+
+                    if github_advisory.cvss:
+                        lines.extend(
+                            [
+                                "## CVSS",
+                                f"- Score: {github_advisory.cvss.score}",
+                                "",
+                            ]
+                        )
+
+                    if github_advisory.cwes:
+                        lines.append("## CWEs")
+                        for cwe in github_advisory.cwes:
+                            lines.append(
+                                f"- {cwe.get('cwe_id', '')}: {cwe.get('name', '')}"
+                            )
+                        lines.append("")
+
+                    if github_advisory.references:
+                        lines.append("## References")
+                        for ref in github_advisory.references[:10]:
+                            lines.append(f"- {ref}")
+
+                    return "\n".join(lines)
+            except Exception:
+                pass
+
+            # Fall back to OSV
             # Use the global osv_client instance
             assert osv_client is not None
             vuln = osv_client.get_vulnerability_by_id(cve_id)
@@ -545,6 +652,12 @@ def main() -> None:
     else:
         print("No NVD API key (rate limits apply)")
         print("   Get one at: https://nvd.nist.gov/developers/request-an-api-key")
+
+    if os.environ.get("GITHUB_TOKEN"):
+        print("GitHub token found")
+    else:
+        print("No GitHub token (rate limits apply)")
+        print("   Get one at: https://github.com/settings/tokens")
 
     print(f"HTTP Port: {port}")
     print("=" * 50)

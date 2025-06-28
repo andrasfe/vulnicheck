@@ -191,10 +191,12 @@ name = "test-project"
     @pytest.mark.asyncio
     async def test_check_package_no_version(self, scanner, mock_osv_client):
         # Mock the async check_package method
-        mock_osv_client.check_package = AsyncMock(return_value=[
-            {"id": "GHSA-1"},
-            {"id": "GHSA-2"},
-        ])
+        mock_osv_client.check_package = AsyncMock(
+            return_value=[
+                {"id": "GHSA-1"},
+                {"id": "GHSA-2"},
+            ]
+        )
 
         vulns = await scanner._check_package("numpy", "")
 
@@ -231,10 +233,12 @@ name = "test-project"
     @pytest.mark.asyncio
     async def test_check_package_invalid_version_spec(self, scanner, mock_osv_client):
         # Mock the async check_package method
-        mock_osv_client.check_package = AsyncMock(return_value=[
-            {"id": "GHSA-1"},
-            {"id": "GHSA-2"},
-        ])
+        mock_osv_client.check_package = AsyncMock(
+            return_value=[
+                {"id": "GHSA-1"},
+                {"id": "GHSA-2"},
+            ]
+        )
 
         # Invalid version spec should return all vulnerabilities
         vulns = await scanner._check_package("numpy", "invalid-spec")

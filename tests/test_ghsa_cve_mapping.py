@@ -1,4 +1,5 @@
 """Tests for GHSA to CVE mapping functionality."""
+
 from datetime import datetime
 from unittest.mock import patch
 
@@ -166,5 +167,8 @@ class TestGHSAToCVEMapping:
         result = _format_osv_vulnerability(mock_vuln)
 
         # Should truncate to first 10 versions
-        assert "- test-package: 1.0.0, 1.0.1, 1.0.2, 1.0.3, 1.0.4, 1.0.5, 1.0.6, 1.0.7, 1.0.8, 1.0.9" in result
+        assert (
+            "- test-package: 1.0.0, 1.0.1, 1.0.2, 1.0.3, 1.0.4, 1.0.5, 1.0.6, 1.0.7, 1.0.8, 1.0.9"
+            in result
+        )
         assert "... and 10 more versions" in result

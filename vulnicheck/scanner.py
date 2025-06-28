@@ -9,9 +9,12 @@ from packaging.specifiers import SpecifierSet
 
 
 class DependencyScanner:
-    def __init__(self, osv_client: Any, nvd_client: Any) -> None:
+    def __init__(
+        self, osv_client: Any, nvd_client: Any, github_client: Any = None
+    ) -> None:
         self.osv_client = osv_client
         self.nvd_client = nvd_client
+        self.github_client = github_client
 
     async def scan_file(self, file_path: str) -> Dict[str, List[Any]]:
         """Scan a dependency file for vulnerabilities."""
@@ -183,6 +186,18 @@ class DependencyScanner:
     async def _check_exact_version(self, name: str, version: str) -> List[Any]:
         """Check if a specific version of a package has vulnerabilities."""
         vulns = await self.osv_client.check_package(name, version)
+
+        # Also check GitHub Advisory Database if available
+        if self.github_client:
+            try:
+                github_advisories = await self.github_client.search_advisories_async(
+                    name, version
+                )
+                vulns.extend(github_advisories)
+            except Exception:
+                # Silently ignore GitHub API errors
+                pass
+
         return list(vulns)
 
     def _parse_requirement(self, line: str) -> Tuple[str, str]:
@@ -200,6 +215,17 @@ class DependencyScanner:
     async def _check_package(self, name: str, version_spec: str) -> List[Any]:
         """Check if a package has vulnerabilities."""
         vulns = await self.osv_client.check_package(name)
+
+        # Also check GitHub Advisory Database if available
+        if self.github_client:
+            try:
+                github_advisories = await self.github_client.search_advisories_async(
+                    name
+                )
+                vulns.extend(github_advisories)
+            except Exception:
+                # Silently ignore GitHub API errors
+                pass
 
         if not version_spec or not vulns:
             return list(vulns)
