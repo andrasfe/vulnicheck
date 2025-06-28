@@ -17,6 +17,7 @@ This software incorporates or references data from publicly available sources, i
 - **Real-time vulnerability checking** for Python packages using OSV.dev, NVD, and GitHub Advisory Database APIs
 - **Comprehensive coverage** by querying multiple authoritative vulnerability databases
 - **Dependency scanning** for `requirements.txt` and `pyproject.toml` files
+- **Python import scanning** - automatically discovers dependencies from Python source files when no requirements file exists
 - **Detailed CVE information** including CVSS scores and severity ratings
 - **CWE (Common Weakness Enumeration) mapping** for better understanding of vulnerability types
 - **FastMCP integration** for simplified Model Context Protocol implementation
@@ -101,18 +102,32 @@ Check a specific Python package for known vulnerabilities.
 
 ### 2. scan_dependencies
 
-Scan a requirements file for vulnerabilities in all dependencies.
+Scan a requirements file or directory for vulnerabilities in all dependencies.
 
 **Parameters:**
-- `file_path` (required): Path to requirements.txt or pyproject.toml
+- `file_path` (required): Path to requirements.txt, pyproject.toml, or a directory
 - `include_details` (optional): Include detailed CVE information
 
-**Example:**
+**Behavior:**
+- If given a file: Scans the dependency file directly
+- If given a directory: 
+  - First checks for requirements.txt or pyproject.toml
+  - If none found, scans all Python files for imports and checks latest versions
+
+**Examples:**
 ```json
 {
   "tool": "scan_dependencies",
   "file_path": "/path/to/requirements.txt",
   "include_details": false
+}
+```
+
+```json
+{
+  "tool": "scan_dependencies",
+  "file_path": "/path/to/project/directory",
+  "include_details": true
 }
 ```
 

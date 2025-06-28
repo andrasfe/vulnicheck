@@ -298,9 +298,9 @@ package5 = {git = "https://github.com/test/repo.git"}
 
                 # Check version conversions
                 assert ("package1", ">=1.2.3") in deps  # ^ converted to >=
-                assert ("package2", "~=1.2.3") in deps   # ~ converted to ~=
-                assert ("package3", "1.2.3") in deps     # plain version
-                assert ("package4", ">=2.0.0") in deps   # ^ in dict converted to >=
+                assert ("package2", "~=1.2.3") in deps  # ~ converted to ~=
+                assert ("package3", "1.2.3") in deps  # plain version
+                assert ("package4", ">=2.0.0") in deps  # ^ in dict converted to >=
                 # package5 with git dependency might not be included
 
             finally:

@@ -1,4 +1,3 @@
-
 import pytest
 
 from vulnicheck.cache import VulnerabilityCache

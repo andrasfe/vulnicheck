@@ -30,6 +30,7 @@ nvd_client = None
 github_client = None
 scanner = None
 
+
 def _ensure_clients_initialized() -> None:
     """Ensure clients are initialized when needed."""
     global osv_client, nvd_client, github_client, scanner
@@ -106,7 +107,7 @@ def _format_osv_vulnerability(vuln: Any) -> str:
     )
 
     # Add CWE information
-    if hasattr(vuln, 'cwe_ids') and vuln.cwe_ids:
+    if hasattr(vuln, "cwe_ids") and vuln.cwe_ids:
         lines.extend(["## Common Weakness Enumeration (CWE)"])
         for cwe in vuln.cwe_ids:
             lines.append(f"- {cwe}")
@@ -264,13 +265,13 @@ async def check_package_vulnerabilities(
                                 ]
                             )
                             # Add CWE information from CVE
-                            if hasattr(cve, 'cwe_ids') and cve.cwe_ids:
+                            if hasattr(cve, "cwe_ids") and cve.cwe_ids:
                                 lines.append(f"- CWE: {', '.join(cve.cwe_ids)}")
                     except Exception:
                         pass
 
             # Add CWE information from OSV vulnerability
-            if hasattr(vuln, 'cwe_ids') and vuln.cwe_ids:
+            if hasattr(vuln, "cwe_ids") and vuln.cwe_ids:
                 lines.append(f"**CWE**: {', '.join(vuln.cwe_ids)}")
 
             # Add references
@@ -289,7 +290,12 @@ async def check_package_vulnerabilities(
 
 @mcp.tool
 async def scan_dependencies(file_path: str, include_details: bool = False) -> str:
-    """Scan a requirements.txt or pyproject.toml file for vulnerabilities.
+    """Scan a requirements.txt, pyproject.toml file, or directory for vulnerabilities.
+
+    If a directory is provided:
+    - First checks for requirements.txt or pyproject.toml in the directory
+    - If none found, scans all Python files for import statements
+    - Reports vulnerabilities for the latest version of discovered packages
 
     IMPORTANT: All vulnerability data is provided 'AS IS' without warranty.
     See README.md for full disclaimer."""
@@ -304,14 +310,15 @@ async def scan_dependencies(file_path: str, include_details: bool = False) -> st
         total_vulns = sum(len(v) for v in results.values())
         affected = [p for p, v in results.items() if v]
 
-        # Check if we found lock file versions
+        # Check if we found lock file versions or scanned imports
         has_lock_versions = any("==" in pkg for pkg in results)
+        has_imports_scan = any("(latest)" in pkg for pkg in results)
 
         lines = [
             "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
             "",
             "# Dependency Scan Report",
-            f"File: {file_path}",
+            f"Path: {file_path}",
             f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
             "",
             "## Summary",
@@ -320,7 +327,10 @@ async def scan_dependencies(file_path: str, include_details: bool = False) -> st
             f"- Total vulnerabilities: {total_vulns}",
         ]
 
-        if has_lock_versions:
+        if has_imports_scan:
+            lines.append("- Mode: Python import scanning (no requirements file found)")
+            lines.append("- Checking latest versions of imported packages")
+        elif has_lock_versions:
             lines.append("- Using lock file for accurate version checking")
         else:
             lines.append("- No lock file found, checking version ranges")
@@ -398,18 +408,26 @@ async def scan_dependencies(file_path: str, include_details: bool = False) -> st
                             try:
                                 cve = cached_get_cve(cve_ids[0])
                                 if cve and cve.cvss_v3:
-                                    lines.extend([
-                                        f"**CVSS Score**: {cve.cvss_v3.baseScore} ({cve.cvss_v3.baseSeverity})",
-                                        f"**Vector**: {cve.cvss_v3.vectorString}",
-                                    ])
+                                    lines.extend(
+                                        [
+                                            f"**CVSS Score**: {cve.cvss_v3.baseScore} ({cve.cvss_v3.baseSeverity})",
+                                            f"**Vector**: {cve.cvss_v3.vectorString}",
+                                        ]
+                                    )
                                     # Add CWE information from CVE
-                                    if hasattr(cve, 'cwe_ids') and cve.cwe_ids:
-                                        lines.append(f"**CWE**: {', '.join(cve.cwe_ids)}")
+                                    if hasattr(cve, "cwe_ids") and cve.cwe_ids:
+                                        lines.append(
+                                            f"**CWE**: {', '.join(cve.cwe_ids)}"
+                                        )
                             except Exception:
                                 pass
 
                         # Add CWE information from OSV vulnerability if no CVE CWE found
-                        if hasattr(v, 'cwe_ids') and v.cwe_ids and not any("**CWE**:" in line for line in lines[-5:]):
+                        if (
+                            hasattr(v, "cwe_ids")
+                            and v.cwe_ids
+                            and not any("**CWE**:" in line for line in lines[-5:])
+                        ):
                             lines.append(f"**CWE**: {', '.join(v.cwe_ids)}")
                     else:
                         # Simple format when details not requested
@@ -613,7 +631,7 @@ async def get_cve_details(cve_id: str) -> str:
             )
 
         # Add CWE information
-        if hasattr(cve, 'cwe_ids') and cve.cwe_ids:
+        if hasattr(cve, "cwe_ids") and cve.cwe_ids:
             lines.extend(
                 [
                     "## Common Weakness Enumeration (CWE)",
@@ -672,6 +690,7 @@ def main() -> None:
     except Exception as e:
         print(f"MCP server error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

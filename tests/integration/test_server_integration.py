@@ -5,7 +5,6 @@ Note: The server has been migrated to FastMCP architecture.
 Basic integration tests are included here.
 """
 
-
 import pytest
 
 from vulnicheck.nvd_client import NVDClient

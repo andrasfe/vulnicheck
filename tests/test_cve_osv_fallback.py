@@ -1,6 +1,5 @@
 """Tests for CVE lookup with OSV fallback functionality."""
 
-
 import pytest
 
 from vulnicheck.osv_client import Vulnerability
@@ -51,7 +50,7 @@ class TestCVEOSVFallback:
                             ],
                         }
                     ],
-                }
+                },
             ],
             references=[
                 {"url": "https://github.com/pydantic/pydantic/pull/7360"},

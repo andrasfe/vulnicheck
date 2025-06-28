@@ -7,18 +7,19 @@ For now, this file contains placeholder tests.
 """
 
 
-
 class TestVulniCheckMCPServer:
     """Placeholder tests for the FastMCP server."""
 
     def test_server_module_exists(self):
         """Test that the server module can be imported."""
         import vulnicheck.server
+
         assert vulnicheck.server is not None
 
     def test_mcp_instance_exists(self):
         """Test that the MCP instance is created."""
         from vulnicheck.server import mcp
+
         assert mcp is not None
         assert mcp.name == "vulnicheck-mcp"
 

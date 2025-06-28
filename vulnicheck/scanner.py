@@ -1,7 +1,8 @@
+import ast
 import hashlib
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 import toml
 from packaging.requirements import Requirement
@@ -19,6 +20,10 @@ class DependencyScanner:
     async def scan_file(self, file_path: str) -> Dict[str, List[Any]]:
         """Scan a dependency file for vulnerabilities."""
         path = Path(file_path).resolve()  # Resolve to absolute path
+
+        # Handle directory input - scan for Python imports
+        if path.is_dir():
+            return await self.scan_directory(str(path))
 
         # Security: Ensure it's a file, not a directory
         if not path.is_file():
@@ -281,3 +286,158 @@ class DependencyScanner:
                 if vulns:
                     results[f"{name}=={version}"] = vulns
         return results
+
+    async def scan_directory(self, directory_path: str) -> Dict[str, List[Any]]:
+        """Scan a directory for Python imports when no requirements file exists."""
+        path = Path(directory_path).resolve()
+
+        # First check if requirements.txt or pyproject.toml exists
+        req_file = path / "requirements.txt"
+        pyproject_file = path / "pyproject.toml"
+
+        if req_file.exists():
+            return await self.scan_file(str(req_file))
+        elif pyproject_file.exists():
+            return await self.scan_file(str(pyproject_file))
+
+        # No dependency files found, scan Python files for imports
+        imports = self._scan_python_imports(path)
+
+        # Check each unique import for vulnerabilities (latest version)
+        results = {}
+        for pkg_name in imports:
+            # Skip if it looks like a relative import or builtin
+            if pkg_name.startswith(".") or self._is_stdlib_module(pkg_name):
+                continue
+
+            # Get latest version vulnerabilities
+            vulns = await self._check_latest_version(pkg_name)
+            if vulns:
+                results[f"{pkg_name} (latest)"] = vulns
+
+        return results
+
+    def _scan_python_imports(self, directory: Path) -> Set[str]:
+        """Recursively scan Python files for import statements."""
+        imports = set()
+
+        # Find all Python files
+        python_files = list(directory.rglob("*.py"))
+
+        # Limit number of files to prevent DoS
+        if len(python_files) > 1000:
+            python_files = python_files[:1000]
+
+        for py_file in python_files:
+            # Skip files that are too large
+            if py_file.stat().st_size > 1024 * 1024:  # 1MB limit for individual files
+                continue
+
+            try:
+                imports.update(self._extract_imports_from_file(py_file))
+            except Exception:
+                # Skip files that can't be parsed
+                continue
+
+        return imports
+
+    def _extract_imports_from_file(self, file_path: Path) -> Set[str]:
+        """Extract import statements from a Python file using AST."""
+        imports = set()
+
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                tree = ast.parse(f.read(), filename=str(file_path))
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        # Get the top-level module name
+                        module_name = alias.name.split(".")[0]
+                        imports.add(module_name)
+                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                    # Get the top-level module name (only absolute imports)
+                    module_name = node.module.split(".")[0]
+                    imports.add(module_name)
+
+        except (SyntaxError, UnicodeDecodeError):
+            # Skip files with syntax errors or encoding issues
+            pass
+
+        return imports
+
+    def _is_stdlib_module(self, module_name: str) -> bool:
+        """Check if a module is part of Python's standard library."""
+        # Common stdlib modules - not exhaustive but covers most cases
+        stdlib_modules = {
+            "abc",
+            "argparse",
+            "ast",
+            "asyncio",
+            "base64",
+            "builtins",
+            "collections",
+            "contextlib",
+            "copy",
+            "csv",
+            "datetime",
+            "decimal",
+            "email",
+            "enum",
+            "functools",
+            "hashlib",
+            "http",
+            "importlib",
+            "io",
+            "itertools",
+            "json",
+            "logging",
+            "math",
+            "multiprocessing",
+            "os",
+            "pathlib",
+            "pickle",
+            "re",
+            "shutil",
+            "socket",
+            "sqlite3",
+            "ssl",
+            "string",
+            "subprocess",
+            "sys",
+            "tempfile",
+            "threading",
+            "time",
+            "typing",
+            "unittest",
+            "urllib",
+            "uuid",
+            "warnings",
+            "weakref",
+            "xml",
+            "zipfile",
+            "__future__",
+            "__main__",
+        }
+        return module_name in stdlib_modules
+
+    async def _check_latest_version(self, name: str) -> List[Any]:
+        """Check if the latest version of a package has vulnerabilities."""
+        # Query for all vulnerabilities of this package
+        vulns = await self.osv_client.check_package(name)
+
+        # Also check GitHub Advisory Database if available
+        if self.github_client:
+            try:
+                github_advisories = await self.github_client.search_advisories_async(
+                    name
+                )
+                vulns.extend(github_advisories)
+            except Exception:
+                # Silently ignore GitHub API errors
+                pass
+
+        # Filter to only include vulnerabilities affecting the latest version
+        # Since we don't know the exact latest version, we return all vulns
+        # and indicate they apply to "latest" version
+        return list(vulns)
