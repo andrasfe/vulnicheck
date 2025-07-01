@@ -174,6 +174,35 @@ Scan files or directories for exposed secrets and credentials using detect-secre
 }
 ```
 
+### 5. validate_mcp_security
+
+Validate MCP server security configuration for self-assessment. Allows LLMs to check their own security posture using mcp-scan integration.
+
+**Parameters:**
+- `mode` (optional): 'scan' for full analysis or 'inspect' for quick check (default: 'scan')
+- `config_json` (optional): JSON string containing MCP configuration (auto-detects if not provided)
+- `local_only` (optional): Use local validation only, no external API calls (default: true)
+
+**Example:**
+```json
+{
+  "tool": "validate_mcp_security",
+  "mode": "scan",
+  "local_only": true
+}
+```
+
+This tool helps LLMs self-validate for:
+- Prompt injection in tool descriptions
+- Tool poisoning attempts
+- Cross-origin escalation risks
+- Suspicious behavior patterns
+
+The validation report includes severity levels (CRITICAL, HIGH, MEDIUM, LOW) and provides guidance on whether to proceed with sensitive operations.
+
+**Integration with mcp-scan:**
+VulniCheck leverages the [mcp-scan](https://github.com/andrasfe/mcp-scan) tool to perform comprehensive security validation of MCP configurations. This integration allows LLMs to proactively identify security risks before executing sensitive operations.
+
 ## Example Output
 
 ### Package Vulnerability Check
