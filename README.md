@@ -18,6 +18,7 @@ This software incorporates or references data from publicly available sources, i
 - **Comprehensive coverage** by querying multiple authoritative vulnerability databases
 - **Dependency scanning** for `requirements.txt` and `pyproject.toml` files
 - **Python import scanning** - automatically discovers dependencies from Python source files when no requirements file exists
+- **Secrets detection** - scans files and directories for exposed API keys, passwords, and credentials using detect-secrets
 - **Detailed CVE information** including CVSS scores and severity ratings
 - **CWE (Common Weakness Enumeration) mapping** for better understanding of vulnerability types
 - **FastMCP integration** for simplified Model Context Protocol implementation
@@ -61,6 +62,8 @@ Once the service is running and your IDE is configured, you can interact with Vu
 - "Scan my requirements.txt file for security issues"
 - "Get details about CVE-2024-3772"
 - "Check all installed packages for vulnerabilities"
+- "Scan this directory for exposed secrets"
+- "Check if my code contains any API keys or passwords"
 
 ### Managing the Service
 
@@ -151,6 +154,23 @@ Get detailed information about a specific CVE or GHSA advisory.
 {
   "tool": "get_cve_details",
   "cve_id": "GHSA-fpfv-jqm9-f5jm"
+}
+```
+
+### 4. scan_for_secrets
+
+Scan files or directories for exposed secrets and credentials using detect-secrets.
+
+**Parameters:**
+- `path` (required): File or directory path to scan
+- `exclude_patterns` (optional): List of glob patterns to exclude from scanning
+
+**Example:**
+```json
+{
+  "tool": "scan_for_secrets",
+  "path": "/path/to/project",
+  "exclude_patterns": ["*.log", "build/*"]
 }
 ```
 

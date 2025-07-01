@@ -3,6 +3,7 @@ import os
 import sys
 from datetime import datetime
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP
@@ -11,6 +12,7 @@ from .github_client import GitHubClient
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
 from .scanner import DependencyScanner
+from .secrets_scanner import SecretsScanner
 
 # Configure logging to stderr to avoid interfering with JSON-RPC on stdout
 logging.basicConfig(
@@ -29,16 +31,18 @@ osv_client = None
 nvd_client = None
 github_client = None
 scanner = None
+secrets_scanner = None
 
 
 def _ensure_clients_initialized() -> None:
     """Ensure clients are initialized when needed."""
-    global osv_client, nvd_client, github_client, scanner
+    global osv_client, nvd_client, github_client, scanner, secrets_scanner
     if osv_client is None:
         osv_client = OSVClient()
         nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
         github_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN"))
         scanner = DependencyScanner(osv_client, nvd_client, github_client)
+        secrets_scanner = SecretsScanner()
 
 
 @lru_cache(maxsize=1000)
@@ -650,6 +654,113 @@ async def get_cve_details(cve_id: str) -> str:
 
     except Exception as e:
         logger.error(f"Error fetching {cve_id}: {e}")
+        return f"Error: {str(e)}"
+
+
+@mcp.tool
+async def scan_for_secrets(
+    path: str, exclude_patterns: Optional[List[str]] = None
+) -> str:
+    """Scan files or directories for exposed secrets and credentials.
+
+    Uses detect-secrets to identify potential secrets like API keys, passwords,
+    tokens, and other sensitive information in code.
+
+    Args:
+        path: File or directory path to scan
+        exclude_patterns: Optional list of glob patterns to exclude from scanning
+
+    Returns:
+        Formatted report of detected secrets
+    """
+    try:
+        logger.info(f"Starting secrets scan of {path}")
+        _ensure_clients_initialized()
+        assert secrets_scanner is not None
+
+        # Determine if scanning file or directory
+        scan_path = Path(path).resolve()
+
+        if scan_path.is_file():
+            secrets = secrets_scanner.scan_file(str(scan_path))
+        elif scan_path.is_dir():
+            secrets = secrets_scanner.scan_directory(str(scan_path), exclude_patterns)
+        else:
+            return f"Error: Path not found: {path}"
+
+        # Filter false positives
+        secrets = secrets_scanner.filter_false_positives(secrets)
+
+        # Build report
+        lines = [
+            "# Secrets Scan Report",
+            f"Path: {path}",
+            f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            "",
+            "## Summary",
+            f"- Total secrets found: {len(secrets)}",
+        ]
+
+        if not secrets:
+            lines.append("\n✅ No secrets detected!")
+            return "\n".join(lines)
+
+        # Count by severity
+        severity_counts: Dict[str, int] = {}
+        for secret in secrets:
+            severity = secrets_scanner.get_secret_severity(secret.secret_type)
+            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+        lines.append("\n### Severity Distribution")
+        for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+            if count := severity_counts.get(severity, 0):
+                lines.append(f"- {severity}: {count}")
+
+        # Group secrets by file
+        secrets_by_file: Dict[str, List[Any]] = {}
+        for secret in secrets:
+            if secret.file_path not in secrets_by_file:
+                secrets_by_file[secret.file_path] = []
+            secrets_by_file[secret.file_path].append(secret)
+
+        lines.append("\n## Detected Secrets")
+
+        # Show detailed findings
+        for file_path, file_secrets in sorted(secrets_by_file.items()):
+            lines.append(f"\n### {file_path}")
+            lines.append(f"Found {len(file_secrets)} secret(s):")
+
+            for secret in sorted(file_secrets, key=lambda s: s.line_number):
+                severity = secrets_scanner.get_secret_severity(secret.secret_type)
+                lines.extend(
+                    [
+                        f"\n**Line {secret.line_number}** - {secret.secret_type}",
+                        f"- Severity: {severity}",
+                        f"- Hash: {secret.hashed_secret[:16]}...",
+                    ]
+                )
+
+                if secret.is_verified:
+                    lines.append("- ⚠️  **VERIFIED**: This appears to be a real secret!")
+
+        lines.extend(
+            [
+                "",
+                "## Recommendations",
+                "1. Remove any real secrets from the codebase",
+                "2. Use environment variables for sensitive configuration",
+                "3. Add detected secrets to .gitignore if they are local config files",
+                "4. Consider using a secrets management system",
+                "5. Rotate any exposed credentials immediately",
+                "",
+                "⚠️  **Note**: Some detections may be false positives. Review each finding carefully.",
+            ]
+        )
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error scanning for secrets in {path}: {e}")
         return f"Error: {str(e)}"
 
 

@@ -355,7 +355,9 @@ class DependencyScanner:
                         # Get the top-level module name
                         module_name = alias.name.split(".")[0]
                         imports.add(module_name)
-                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                elif (
+                    isinstance(node, ast.ImportFrom) and node.module and node.level == 0
+                ):
                     # Get the top-level module name (only absolute imports)
                     module_name = node.module.split(".")[0]
                     imports.add(module_name)
