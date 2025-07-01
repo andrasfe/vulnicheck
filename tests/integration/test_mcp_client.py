@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Add parent directory to path to import vulnicheck modules
 sys.path.insert(
@@ -57,8 +57,8 @@ class MCPTestClient:
             print(f"[SERVER] {line.decode().rstrip()}")
 
     async def send_request(
-        self, method: str, params: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, method: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Send JSON-RPC request to server."""
         self.message_id += 1
 
@@ -126,7 +126,7 @@ class MCPTestClient:
 
         return response
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any]):
+    async def call_tool(self, name: str, arguments: dict[str, Any]):
         """Call a specific tool."""
         print(f"\n🛠️  Calling tool: {name}")
 

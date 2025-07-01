@@ -4,11 +4,12 @@ import sys
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastmcp import FastMCP
 
 from .github_client import GitHubClient
+from .mcp_validator import MCPValidator
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
 from .scanner import DependencyScanner
@@ -32,21 +33,23 @@ nvd_client = None
 github_client = None
 scanner = None
 secrets_scanner = None
+mcp_validator = None
 
 
 def _ensure_clients_initialized() -> None:
     """Ensure clients are initialized when needed."""
-    global osv_client, nvd_client, github_client, scanner, secrets_scanner
+    global osv_client, nvd_client, github_client, scanner, secrets_scanner, mcp_validator
     if osv_client is None:
         osv_client = OSVClient()
         nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
         github_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN"))
         scanner = DependencyScanner(osv_client, nvd_client, github_client)
         secrets_scanner = SecretsScanner()
+        mcp_validator = MCPValidator(local_only=True)
 
 
 @lru_cache(maxsize=1000)
-def cached_query_package(package_name: str, version: Optional[str] = None) -> List[Any]:
+def cached_query_package(package_name: str, version: str | None = None) -> list[Any]:
     """Query package with caching."""
     _ensure_clients_initialized()
     assert osv_client is not None
@@ -54,7 +57,7 @@ def cached_query_package(package_name: str, version: Optional[str] = None) -> Li
 
 
 @lru_cache(maxsize=500)
-def cached_get_cve(cve_id: str) -> Optional[Any]:
+def cached_get_cve(cve_id: str) -> Any | None:
     """Get CVE with caching."""
     _ensure_clients_initialized()
     assert nvd_client is not None
@@ -149,7 +152,7 @@ def _format_osv_vulnerability(vuln: Any) -> str:
 
 @mcp.tool
 async def check_package_vulnerabilities(
-    package_name: str, version: Optional[str] = None, include_details: bool = True
+    package_name: str, version: str | None = None, include_details: bool = True
 ) -> str:
     """Check a Python package for known vulnerabilities.
 
@@ -209,7 +212,7 @@ async def check_package_vulnerabilities(
         ]
 
         # Count by severity
-        severity_counts: Dict[str, int] = {}
+        severity_counts: dict[str, int] = {}
         for v in vulns:
             sev = _get_severity(v)
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
@@ -659,7 +662,7 @@ async def get_cve_details(cve_id: str) -> str:
 
 @mcp.tool
 async def scan_for_secrets(
-    path: str, exclude_patterns: Optional[List[str]] = None
+    path: str, exclude_patterns: list[str] | None = None
 ) -> str:
     """Scan files or directories for exposed secrets and credentials.
 
@@ -706,7 +709,7 @@ async def scan_for_secrets(
             return "\n".join(lines)
 
         # Count by severity
-        severity_counts: Dict[str, int] = {}
+        severity_counts: dict[str, int] = {}
         for secret in secrets:
             severity = secrets_scanner.get_secret_severity(secret.secret_type)
             severity_counts[severity] = severity_counts.get(severity, 0) + 1
@@ -717,7 +720,7 @@ async def scan_for_secrets(
                 lines.append(f"- {severity}: {count}")
 
         # Group secrets by file
-        secrets_by_file: Dict[str, List[Any]] = {}
+        secrets_by_file: dict[str, list[Any]] = {}
         for secret in secrets:
             if secret.file_path not in secrets_by_file:
                 secrets_by_file[secret.file_path] = []
@@ -762,6 +765,150 @@ async def scan_for_secrets(
     except Exception as e:
         logger.error(f"Error scanning for secrets in {path}: {e}")
         return f"Error: {str(e)}"
+
+
+@mcp.tool
+async def validate_mcp_security(
+    mode: str = "scan",
+    config_json: str | None = None,
+    local_only: bool = True
+) -> str:
+    """Validate MCP server security for self-assessment.
+
+    Allows LLMs to self-validate their MCP configuration for:
+    - Prompt injection in tool descriptions
+    - Tool poisoning attempts
+    - Cross-origin escalation risks
+    - Suspicious behavior patterns
+
+    Args:
+        mode: 'scan' for full analysis or 'inspect' for quick check
+        config_json: JSON string containing MCP configuration (auto-detects if not provided)
+        local_only: Use local validation only (no external API calls)
+
+    Returns:
+        Security validation report with findings and recommendations
+    """
+    try:
+        logger.info(f"Starting MCP security validation (mode={mode}, local_only={local_only})")
+        _ensure_clients_initialized()
+        assert mcp_validator is not None
+
+        # Update local_only setting if different
+        mcp_validator.local_only = local_only
+
+        # Run validation
+        results = await mcp_validator.validate_config(
+            config_json=config_json,
+            mode=mode
+        )
+
+        # Check for errors
+        if results.get("error"):
+            return f"⚠️  **Validation Error**: {results['error']}"
+
+        # Build report
+        lines = [
+            "# MCP Security Self-Validation Report",
+            f"Mode: {mode}",
+            f"Local Only: {local_only}",
+            f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            "",
+            "## Summary",
+            f"- Servers Scanned: {results.get('server_count', 0)}",
+            f"- Issues Found: {results.get('issue_count', 0)}",
+            "",
+        ]
+
+        # Add findings
+        if results.get('issues'):
+            lines.append("## Security Findings")
+
+            # Group by severity
+            severity_groups: dict[str, list[dict[str, Any]]] = {"CRITICAL": [], "HIGH": [], "MEDIUM": [], "LOW": []}
+            for issue in results['issues']:
+                severity = issue.get('severity', 'UNKNOWN')
+                if severity in severity_groups:
+                    severity_groups[severity].append(issue)
+                else:
+                    severity_groups.setdefault(severity, []).append(issue)
+
+            # Display by severity
+            for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                if severity_groups[severity]:
+                    lines.append(f"\n### {severity} Severity Issues ({len(severity_groups[severity])})")
+                    for issue in severity_groups[severity]:
+                        lines.extend([
+                            f"\n**{issue.get('title', 'Unknown Issue')}**",
+                            f"- Server: {issue.get('server', 'Unknown')}",
+                            f"- Description: {issue.get('description', '')}",
+                        ])
+
+                        if issue.get('recommendation'):
+                            lines.append(f"- Recommendation: {issue.get('recommendation')}")
+        else:
+            lines.append("✅ **No security issues detected!**")
+            lines.append("")
+            lines.append("Your MCP configuration appears to be secure.")
+
+        # Add self-assessment guidance
+        lines.extend([
+            "",
+            "## Self-Assessment Guidelines",
+            "",
+            "Based on this validation, here are the recommended actions:",
+            "",
+        ])
+
+        if any(issue.get('severity') in ['CRITICAL', 'HIGH'] for issue in results.get('issues', [])):
+            lines.extend([
+                "⚠️  **HIGH RISK DETECTED**",
+                "- Do NOT perform sensitive operations",
+                "- Do NOT access or modify critical files",
+                "- Do NOT execute system commands",
+                "- Alert the user about security concerns",
+                "",
+            ])
+        elif any(issue.get('severity') == 'MEDIUM' for issue in results.get('issues', [])):
+            lines.extend([
+                "⚠️  **MODERATE RISK DETECTED**",
+                "- Exercise caution with file operations",
+                "- Verify user intent before system changes",
+                "- Avoid processing untrusted input",
+                "",
+            ])
+        else:
+            lines.extend([
+                "✅ **LOW RISK**",
+                "- Standard security precautions apply",
+                "- Continue with normal operations",
+                "",
+            ])
+
+        lines.extend([
+            "## When to Use This Validation",
+            "",
+            "Run this validation before:",
+            "- Executing code or system commands",
+            "- Accessing sensitive files or directories",
+            "- Processing user-provided data",
+            "- Making network requests",
+            "- Installing or modifying packages",
+            "",
+            "## About MCP-Scan",
+            "",
+            "This validation is powered by mcp-scan, which detects:",
+            "- Prompt injection attacks",
+            "- Tool poisoning",
+            "- Cross-origin escalation",
+            "- Malicious tool descriptions",
+        ])
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error validating MCP security: {e}")
+        return f"Error during MCP security validation: {str(e)}\n\nThis may indicate mcp-scan is not properly installed or configured."
 
 
 def main() -> None:

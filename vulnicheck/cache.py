@@ -1,7 +1,7 @@
 # This file is kept for backwards compatibility with tests
 # The actual caching is now done using functools.lru_cache in server.py
 
-from typing import Any, Optional
+from typing import Any
 
 
 class VulnerabilityCache:
@@ -10,7 +10,7 @@ class VulnerabilityCache:
     def __init__(self, max_size: int = 1000, ttl_seconds: int = 900) -> None:
         pass
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         return None
 
     def set(self, key: str, value: Any) -> None:

@@ -4,7 +4,7 @@ import json
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("vulnicheck.secrets")
 
@@ -26,7 +26,7 @@ class SecretsScanResult:
         self.hashed_secret = hashed_secret
         self.is_verified = is_verified
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "file_path": self.file_path,
@@ -93,7 +93,7 @@ class SecretsScanner:
         """Initialize the secrets scanner."""
         self.baseline_file = ".secrets.baseline"
 
-    def scan_file(self, file_path: str) -> List[SecretsScanResult]:
+    def scan_file(self, file_path: str) -> list[SecretsScanResult]:
         """Scan a single file for secrets.
 
         Args:
@@ -114,8 +114,8 @@ class SecretsScanner:
         return self._run_detect_secrets([str(path)])
 
     def scan_directory(
-        self, directory_path: str, exclude_patterns: Optional[List[str]] = None
-    ) -> List[SecretsScanResult]:
+        self, directory_path: str, exclude_patterns: list[str] | None = None
+    ) -> list[SecretsScanResult]:
         """Scan a directory recursively for secrets.
 
         Args:
@@ -139,8 +139,8 @@ class SecretsScanner:
         return self._run_detect_secrets(files_to_scan)
 
     def _collect_files(
-        self, directory: Path, exclude_patterns: Optional[List[str]] = None
-    ) -> List[str]:
+        self, directory: Path, exclude_patterns: list[str] | None = None
+    ) -> list[str]:
         """Collect files to scan from a directory.
 
         Args:
@@ -184,7 +184,7 @@ class SecretsScanner:
 
         return files_to_scan
 
-    def _run_detect_secrets(self, file_paths: List[str]) -> List[SecretsScanResult]:
+    def _run_detect_secrets(self, file_paths: list[str]) -> list[SecretsScanResult]:
         """Run detect-secrets on the given files.
 
         Args:
@@ -237,8 +237,8 @@ class SecretsScanner:
             return []
 
     def filter_false_positives(
-        self, secrets: List[SecretsScanResult]
-    ) -> List[SecretsScanResult]:
+        self, secrets: list[SecretsScanResult]
+    ) -> list[SecretsScanResult]:
         """Filter out likely false positives.
 
         Args:
