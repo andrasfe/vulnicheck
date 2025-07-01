@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field
@@ -11,11 +11,11 @@ class CVSSData(BaseModel):
     version: str
     vectorString: str
     baseScore: float
-    baseSeverity: Optional[str] = (
+    baseSeverity: str | None = (
         None  # Optional because CVSS v2 doesn't have this field
     )
-    exploitabilityScore: Optional[float] = None
-    impactScore: Optional[float] = None
+    exploitabilityScore: float | None = None
+    impactScore: float | None = None
 
 
 class CVEDescription(BaseModel):
@@ -25,20 +25,20 @@ class CVEDescription(BaseModel):
 
 class CVEReference(BaseModel):
     url: str
-    source: Optional[str] = None
-    tags: List[str] = Field(default_factory=list)
+    source: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class CVEDetail(BaseModel):
     id: str
-    sourceIdentifier: Optional[str] = None
-    published: Optional[datetime] = None
-    lastModified: Optional[datetime] = None
-    vulnStatus: Optional[str] = None
-    descriptions: List[CVEDescription] = Field(default_factory=list)
-    metrics: Dict[str, Any] = Field(default_factory=dict)
-    references: List[CVEReference] = Field(default_factory=list)
-    weaknesses: List[Dict[str, Any]] = Field(default_factory=list)
+    sourceIdentifier: str | None = None
+    published: datetime | None = None
+    lastModified: datetime | None = None
+    vulnStatus: str | None = None
+    descriptions: list[CVEDescription] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    references: list[CVEReference] = Field(default_factory=list)
+    weaknesses: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
     def description(self) -> str:
@@ -48,7 +48,7 @@ class CVEDetail(BaseModel):
         return self.descriptions[0].value if self.descriptions else ""
 
     @property
-    def cvss_v3(self) -> Optional[CVSSData]:
+    def cvss_v3(self) -> CVSSData | None:
         cvss_v31 = self.metrics.get("cvssMetricV31", [])
         if cvss_v31 and len(cvss_v31) > 0:
             cvss_data = cvss_v31[0].get("cvssData", {})
@@ -62,7 +62,7 @@ class CVEDetail(BaseModel):
         return None
 
     @property
-    def cvss_v2(self) -> Optional[CVSSData]:
+    def cvss_v2(self) -> CVSSData | None:
         cvss_v2 = self.metrics.get("cvssMetricV2", [])
         if cvss_v2 and len(cvss_v2) > 0:
             cvss_data = cvss_v2[0].get("cvssData", {})
@@ -94,7 +94,7 @@ class CVEDetail(BaseModel):
         return 0.0
 
     @property
-    def cwe_ids(self) -> List[str]:
+    def cwe_ids(self) -> list[str]:
         """Extract CWE IDs from weaknesses field."""
         cwe_ids = []
 
@@ -123,7 +123,7 @@ class CVEDetail(BaseModel):
 class NVDClient:
     BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
-    def __init__(self, api_key: Optional[str] = None, timeout: int = 30):
+    def __init__(self, api_key: str | None = None, timeout: int = 30):
         self.api_key = api_key
         self.headers = {}
         if api_key:
@@ -137,7 +137,7 @@ class NVDClient:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.client.close()
 
-    def get_cve(self, cve_id: str) -> Optional[CVEDetail]:
+    def get_cve(self, cve_id: str) -> CVEDetail | None:
         try:
             # Apply rate limiting
             self.rate_limiter.wait_if_needed()
@@ -158,7 +158,7 @@ class NVDClient:
                 return None
             raise
 
-    async def get_cve_async(self, cve_id: str) -> Optional[CVEDetail]:
+    async def get_cve_async(self, cve_id: str) -> CVEDetail | None:
         # Apply rate limiting
         self.rate_limiter.wait_if_needed()
 
@@ -185,12 +185,12 @@ class NVDClient:
 
     def search_cves(
         self,
-        keyword: Optional[str] = None,
-        cvss_v3_severity: Optional[str] = None,
+        keyword: str | None = None,
+        cvss_v3_severity: str | None = None,
         results_per_page: int = 20,
         start_index: int = 0,
-    ) -> List[CVEDetail]:
-        params: Dict[str, Any] = {
+    ) -> list[CVEDetail]:
+        params: dict[str, Any] = {
             "resultsPerPage": results_per_page,
             "startIndex": start_index,
         }
@@ -216,7 +216,7 @@ class NVDClient:
 
         return cves
 
-    def get_cve_metrics(self, cve_id: str) -> Dict[str, Any]:
+    def get_cve_metrics(self, cve_id: str) -> dict[str, Any]:
         cve = self.get_cve(cve_id)
         if not cve:
             return {}

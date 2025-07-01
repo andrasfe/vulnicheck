@@ -4,7 +4,6 @@ Rate limiting utilities for API calls.
 
 import time
 from threading import Lock
-from typing import Dict
 
 
 class RateLimiter:
@@ -50,7 +49,7 @@ class APIRateLimiters:
     """Manage rate limiters for different APIs."""
 
     def __init__(self) -> None:
-        self.limiters: Dict[str, RateLimiter] = {}
+        self.limiters: dict[str, RateLimiter] = {}
         self.lock = Lock()
 
     def get_limiter(self, api_name: str, calls: int, period: float) -> RateLimiter:

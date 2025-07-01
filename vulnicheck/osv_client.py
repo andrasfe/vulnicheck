@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 from packaging.version import InvalidVersion, Version
@@ -8,18 +8,18 @@ from pydantic import BaseModel, Field
 
 class Vulnerability(BaseModel):
     id: str
-    summary: Optional[str] = None
-    details: Optional[str] = None
-    aliases: List[str] = Field(default_factory=list)
-    modified: Optional[datetime] = None
-    published: Optional[datetime] = None
-    database_specific: Dict[str, Any] = Field(default_factory=dict)
-    affected: List[Dict[str, Any]] = Field(default_factory=list)
-    severity: List[Dict[str, Any]] = Field(default_factory=list)
-    references: List[Dict[str, Any]] = Field(default_factory=list)
+    summary: str | None = None
+    details: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    modified: datetime | None = None
+    published: datetime | None = None
+    database_specific: dict[str, Any] = Field(default_factory=dict)
+    affected: list[dict[str, Any]] = Field(default_factory=list)
+    severity: list[dict[str, Any]] = Field(default_factory=list)
+    references: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
-    def cwe_ids(self) -> List[str]:
+    def cwe_ids(self) -> list[str]:
         """Extract CWE IDs from database_specific field."""
         cwe_ids = []
 
@@ -68,10 +68,10 @@ class OSVClient:
         self.client.close()
 
     async def query_package_async(
-        self, package_name: str, version: Optional[str] = None, ecosystem: str = "PyPI"
-    ) -> List[Vulnerability]:
+        self, package_name: str, version: str | None = None, ecosystem: str = "PyPI"
+    ) -> list[Vulnerability]:
         async with httpx.AsyncClient(timeout=self.client.timeout) as client:
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "package": {"name": package_name, "ecosystem": ecosystem}
             }
             if version:
@@ -90,9 +90,9 @@ class OSVClient:
             return vulnerabilities
 
     def query_package(
-        self, package_name: str, version: Optional[str] = None, ecosystem: str = "PyPI"
-    ) -> List[Vulnerability]:
-        payload: Dict[str, Any] = {
+        self, package_name: str, version: str | None = None, ecosystem: str = "PyPI"
+    ) -> list[Vulnerability]:
+        payload: dict[str, Any] = {
             "package": {"name": package_name, "ecosystem": ecosystem}
         }
         if version:
@@ -111,12 +111,12 @@ class OSVClient:
         return vulnerabilities
 
     async def check_package(
-        self, package_name: str, version: Optional[str] = None, ecosystem: str = "PyPI"
-    ) -> List[Vulnerability]:
+        self, package_name: str, version: str | None = None, ecosystem: str = "PyPI"
+    ) -> list[Vulnerability]:
         """Async method to check a package for vulnerabilities."""
         return await self.query_package_async(package_name, version, ecosystem)
 
-    def get_vulnerability_by_id(self, vuln_id: str) -> Optional[Vulnerability]:
+    def get_vulnerability_by_id(self, vuln_id: str) -> Vulnerability | None:
         response = self.client.get(f"{self.BASE_URL}/vulns/{vuln_id}")
         if response.status_code == 404:
             return None
@@ -124,7 +124,7 @@ class OSVClient:
 
         return Vulnerability(**response.json())
 
-    def batch_query(self, queries: List[Dict[str, Any]]) -> List[List[Vulnerability]]:
+    def batch_query(self, queries: list[dict[str, Any]]) -> list[list[Vulnerability]]:
         payload = {"queries": queries}
         response = self.client.post(f"{self.BASE_URL}/querybatch", json=payload)
         response.raise_for_status()

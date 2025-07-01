@@ -9,7 +9,7 @@ description = "MCP server for real-time Python package vulnerability checking"
 authors = [{name = "andrasfe", email = ""}]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=2.0.0",
     "httpx>=0.24.0",
@@ -17,6 +17,7 @@ dependencies = [
     "packaging>=23.0",
     "toml>=0.10.2",
     "detect-secrets>=1.4.0",
+    "mcp-scan>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +37,7 @@ vulnicheck = "vulnicheck.server:main"
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py310']
 
 [tool.ruff]
 line-length = 88

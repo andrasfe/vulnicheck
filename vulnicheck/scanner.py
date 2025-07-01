@@ -2,7 +2,7 @@ import ast
 import hashlib
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 import toml
 from packaging.requirements import Requirement
@@ -17,7 +17,7 @@ class DependencyScanner:
         self.nvd_client = nvd_client
         self.github_client = github_client
 
-    async def scan_file(self, file_path: str) -> Dict[str, List[Any]]:
+    async def scan_file(self, file_path: str) -> dict[str, list[Any]]:
         """Scan a dependency file for vulnerabilities."""
         path = Path(file_path).resolve()  # Resolve to absolute path
 
@@ -62,7 +62,7 @@ class DependencyScanner:
 
         return results
 
-    def _parse_requirements(self, path: Path) -> List[Tuple[str, str]]:
+    def _parse_requirements(self, path: Path) -> list[tuple[str, str]]:
         """Parse requirements.txt file."""
         deps = []
 
@@ -78,7 +78,7 @@ class DependencyScanner:
 
         return deps
 
-    def _parse_pyproject(self, path: Path) -> List[Tuple[str, str]]:
+    def _parse_pyproject(self, path: Path) -> list[tuple[str, str]]:
         """Parse pyproject.toml file."""
         deps = []
 
@@ -117,7 +117,7 @@ class DependencyScanner:
 
         return deps
 
-    def _parse_lock_file(self, path: Path) -> List[Tuple[str, str]]:
+    def _parse_lock_file(self, path: Path) -> list[tuple[str, str]]:
         """Parse lock files (requirements.lock, uv.lock, etc)."""
         deps = []
 
@@ -153,7 +153,7 @@ class DependencyScanner:
 
         return deps
 
-    def _find_lock_versions(self, path: Path) -> Dict[str, str]:
+    def _find_lock_versions(self, path: Path) -> dict[str, str]:
         """Find and parse lock files to get actual installed versions."""
         lock_versions = {}
 
@@ -188,7 +188,7 @@ class DependencyScanner:
 
         return lock_versions
 
-    async def _check_exact_version(self, name: str, version: str) -> List[Any]:
+    async def _check_exact_version(self, name: str, version: str) -> list[Any]:
         """Check if a specific version of a package has vulnerabilities."""
         vulns = await self.osv_client.check_package(name, version)
 
@@ -205,7 +205,7 @@ class DependencyScanner:
 
         return list(vulns)
 
-    def _parse_requirement(self, line: str) -> Tuple[str, str]:
+    def _parse_requirement(self, line: str) -> tuple[str, str]:
         """Parse a single requirement line."""
         try:
             req = Requirement(line)
@@ -217,7 +217,7 @@ class DependencyScanner:
                 return match.group(1), match.group(2).strip()
             return line, ""
 
-    async def _check_package(self, name: str, version_spec: str) -> List[Any]:
+    async def _check_package(self, name: str, version_spec: str) -> list[Any]:
         """Check if a package has vulnerabilities."""
         vulns = await self.osv_client.check_package(name)
 
@@ -251,7 +251,7 @@ class DependencyScanner:
             # If parsing fails, return all vulnerabilities
             return list(vulns)
 
-    def _get_affected_versions(self, vuln: Any, package_name: str) -> List[str]:
+    def _get_affected_versions(self, vuln: Any, package_name: str) -> list[str]:
         """Extract affected versions for a package."""
         versions = []
 
@@ -270,7 +270,7 @@ class DependencyScanner:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
 
-    async def scan_installed(self) -> Dict[str, List[Any]]:
+    async def scan_installed(self) -> dict[str, list[Any]]:
         """Scan installed Python packages for vulnerabilities."""
         try:
             import importlib.metadata as metadata
@@ -287,7 +287,7 @@ class DependencyScanner:
                     results[f"{name}=={version}"] = vulns
         return results
 
-    async def scan_directory(self, directory_path: str) -> Dict[str, List[Any]]:
+    async def scan_directory(self, directory_path: str) -> dict[str, list[Any]]:
         """Scan a directory for Python imports when no requirements file exists."""
         path = Path(directory_path).resolve()
 
@@ -317,7 +317,7 @@ class DependencyScanner:
 
         return results
 
-    def _scan_python_imports(self, directory: Path) -> Set[str]:
+    def _scan_python_imports(self, directory: Path) -> set[str]:
         """Recursively scan Python files for import statements."""
         imports = set()
 
@@ -341,7 +341,7 @@ class DependencyScanner:
 
         return imports
 
-    def _extract_imports_from_file(self, file_path: Path) -> Set[str]:
+    def _extract_imports_from_file(self, file_path: Path) -> set[str]:
         """Extract import statements from a Python file using AST."""
         imports = set()
 
@@ -423,7 +423,7 @@ class DependencyScanner:
         }
         return module_name in stdlib_modules
 
-    async def _check_latest_version(self, name: str) -> List[Any]:
+    async def _check_latest_version(self, name: str) -> list[Any]:
         """Check if the latest version of a package has vulnerabilities."""
         # Query for all vulnerabilities of this package
         vulns = await self.osv_client.check_package(name)

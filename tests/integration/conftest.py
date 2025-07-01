@@ -23,7 +23,7 @@ def skip_if_no_network():
 
     try:
         socket.create_connection(("api.osv.dev", 443), timeout=5)
-    except (OSError, socket.timeout):
+    except (TimeoutError, OSError):
         pytest.skip("Network connection required for integration tests")
 
 

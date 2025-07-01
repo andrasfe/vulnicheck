@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 from packaging.version import InvalidVersion, Version
@@ -12,17 +12,17 @@ class GitHubIdentifier(BaseModel):
 
 
 class GitHubVulnerableVersionRange(BaseModel):
-    start_version: Optional[str] = None
-    end_version: Optional[str] = None
-    vulnerable_version_range: Optional[str] = None
+    start_version: str | None = None
+    end_version: str | None = None
+    vulnerable_version_range: str | None = None
 
 
 class GitHubAffected(BaseModel):
-    package: Dict[str, str]
-    vulnerable_version_ranges: List[GitHubVulnerableVersionRange] = Field(
+    package: dict[str, str]
+    vulnerable_version_ranges: list[GitHubVulnerableVersionRange] = Field(
         default_factory=list
     )
-    vulnerable_functions: List[str] = Field(default_factory=list)
+    vulnerable_functions: list[str] = Field(default_factory=list)
 
 
 class GitHubSeverity(BaseModel):
@@ -33,23 +33,23 @@ class GitHubSeverity(BaseModel):
 class GitHubAdvisory(BaseModel):
     id: str
     ghsa_id: str
-    cve_id: Optional[str] = None
+    cve_id: str | None = None
     url: str
     html_url: str
     summary: str
-    description: Optional[str] = None
+    description: str | None = None
     severity: str
-    cvss: Optional[GitHubSeverity] = None
-    cwes: List[Dict[str, Any]] = Field(default_factory=list)
-    identifiers: List[GitHubIdentifier] = Field(default_factory=list)
-    references: List[str] = Field(default_factory=list)
-    published_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    withdrawn_at: Optional[datetime] = None
-    vulnerabilities: List[Dict[str, Any]] = Field(default_factory=list)
+    cvss: GitHubSeverity | None = None
+    cwes: list[dict[str, Any]] = Field(default_factory=list)
+    identifiers: list[GitHubIdentifier] = Field(default_factory=list)
+    references: list[str] = Field(default_factory=list)
+    published_at: datetime | None = None
+    updated_at: datetime | None = None
+    withdrawn_at: datetime | None = None
+    vulnerabilities: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
-    def affected_packages(self) -> List[GitHubAffected]:
+    def affected_packages(self) -> list[GitHubAffected]:
         affected = []
         for vuln in self.vulnerabilities:
             package = vuln.get("package", {})
@@ -74,7 +74,7 @@ class GitHubAdvisory(BaseModel):
 class GitHubClient:
     BASE_URL = "https://api.github.com"
 
-    def __init__(self, token: Optional[str] = None, timeout: int = 30) -> None:
+    def __init__(self, token: str | None = None, timeout: int = 30) -> None:
         self.headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -90,8 +90,8 @@ class GitHubClient:
         self.client.close()
 
     async def search_advisories_async(
-        self, package_name: str, version: Optional[str] = None, ecosystem: str = "pip"
-    ) -> List[GitHubAdvisory]:
+        self, package_name: str, version: str | None = None, ecosystem: str = "pip"
+    ) -> list[GitHubAdvisory]:
         async with httpx.AsyncClient(
             timeout=self.client.timeout, headers=self.headers
         ) as client:
@@ -247,8 +247,8 @@ class GitHubClient:
             return list(advisory_map.values())
 
     def search_advisories(
-        self, package_name: str, version: Optional[str] = None, ecosystem: str = "pip"
-    ) -> List[GitHubAdvisory]:
+        self, package_name: str, version: str | None = None, ecosystem: str = "pip"
+    ) -> list[GitHubAdvisory]:
         # GitHub Advisory Database uses GraphQL API
         query = """
         query($ecosystem: SecurityAdvisoryEcosystem!, $package: String!) {
@@ -306,7 +306,7 @@ class GitHubClient:
             data.get("data", {}).get("securityVulnerabilities", {}).get("nodes", [])
         )
 
-        advisory_map: Dict[str, GitHubAdvisory] = {}
+        advisory_map: dict[str, GitHubAdvisory] = {}
 
         for vuln in vulnerabilities:
             advisory_data = vuln.get("advisory", {})
@@ -389,7 +389,7 @@ class GitHubClient:
 
         return list(advisory_map.values())
 
-    async def get_advisory_by_id_async(self, ghsa_id: str) -> Optional[GitHubAdvisory]:
+    async def get_advisory_by_id_async(self, ghsa_id: str) -> GitHubAdvisory | None:
         async with httpx.AsyncClient(
             timeout=self.client.timeout, headers=self.headers
         ) as client:
@@ -402,7 +402,7 @@ class GitHubClient:
             data = response.json()
             return self._parse_rest_advisory(data)
 
-    def get_advisory_by_id(self, ghsa_id: str) -> Optional[GitHubAdvisory]:
+    def get_advisory_by_id(self, ghsa_id: str) -> GitHubAdvisory | None:
         # Use REST API for getting specific advisory
         response = self.client.get(f"{self.BASE_URL}/advisories/{ghsa_id}")
         if response.status_code == 404:
@@ -412,7 +412,7 @@ class GitHubClient:
         data = response.json()
         return self._parse_rest_advisory(data)
 
-    def _parse_rest_advisory(self, data: Dict[str, Any]) -> GitHubAdvisory:
+    def _parse_rest_advisory(self, data: dict[str, Any]) -> GitHubAdvisory:
         # Extract identifiers
         identifiers = []
         for ident in data.get("identifiers", []):
@@ -472,7 +472,7 @@ class GitHubClient:
             vulnerabilities=vulnerabilities,
         )
 
-    def _parse_datetime(self, datetime_str: Optional[str]) -> Optional[datetime]:
+    def _parse_datetime(self, datetime_str: str | None) -> datetime | None:
         if not datetime_str:
             return None
         try:
@@ -485,7 +485,7 @@ class GitHubClient:
             return None
 
     def _is_version_affected(
-        self, version: str, vulnerable_range: str, first_patched: Optional[str] = None
+        self, version: str, vulnerable_range: str, first_patched: str | None = None
     ) -> bool:
         try:
             test_version = Version(version)
