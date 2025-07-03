@@ -256,8 +256,19 @@ This tool helps LLMs self-validate for:
 
 The validation report includes severity levels (CRITICAL, HIGH, MEDIUM, LOW) and provides guidance on whether to proceed with sensitive operations.
 
-**Integration with mcp-scan:**
-VulniCheck leverages the [mcp-scan](https://github.com/andrasfe/mcp-scan) tool to perform comprehensive security validation of MCP configurations. This integration allows LLMs to proactively identify security risks before executing sensitive operations.
+**Integration with mcp-scan (Experimental):**
+
+VulniCheck integrates with [mcp-scan](https://github.com/invariantlabs-ai/mcp-scan), an experimental security scanner for Model Context Protocol (MCP) configurations. This feature allows LLMs to perform self-assessment of their security posture by analyzing their own MCP server configurations for potential vulnerabilities.
+
+⚠️ **Note:** The MCP security validation feature is experimental and under active development. It provides an additional layer of security awareness but should not be relied upon as the sole security measure.
+
+Key capabilities:
+- Detects potential prompt injection vulnerabilities in tool descriptions
+- Identifies suspicious command patterns and tool poisoning attempts
+- Validates permission models and cross-origin risks
+- Analyzes behavioral patterns that might indicate security issues
+
+This self-validation capability enables LLMs to make informed decisions about whether to proceed with sensitive operations based on their current security configuration.
 
 ## Example Output
 
