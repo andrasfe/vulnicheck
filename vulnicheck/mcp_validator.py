@@ -167,12 +167,9 @@ class MCPValidator:
                 raise
         except Exception as e:
             logger.error(f"Error during MCP validation: {e}")
-            return {
-                "error": str(e),
-                "server_count": 0,
-                "issue_count": 0,
-                "issues": []
-            }
+            # Fall back to basic validation when mcp-scan fails
+            logger.info("Falling back to basic validation due to mcp-scan error")
+            return await self._basic_validation(config_data)
         finally:
             # Restore original working directory
             if 'original_cwd' in locals():
@@ -236,35 +233,112 @@ class MCPValidator:
         Returns:
             Formatted results dictionary
         """
-        # Handle different result formats
-        if isinstance(raw_results, str):
-            try:
-                results_data = json.loads(raw_results)
-            except json.JSONDecodeError:
-                # If not JSON, treat as error message
-                return {
-                    "error": raw_results,
-                    "server_count": 0,
-                    "issue_count": 0,
-                    "issues": []
-                }
-        else:
-            results_data = raw_results
-
         # Extract and format issues
         issues = []
         server_count = 0
 
-        if isinstance(results_data, dict):
-            # Count servers
+        # Handle mcp-scan's list of ScanPathResult objects
+        if isinstance(raw_results, list):
+            for path_result in raw_results:
+                # Access attributes directly if it's a ScanPathResult object
+                if hasattr(path_result, 'servers'):
+                    servers = getattr(path_result, 'servers', [])
+
+                    server_count += len(servers)
+
+                    # Process each server's results
+                    for server_result in servers:
+                        server_name = getattr(server_result, 'name', 'unknown')
+                        server_error = getattr(server_result, 'error', None)
+                        result = getattr(server_result, 'result', None)
+
+                        # Check if server had errors
+                        if server_error:
+                            error_msg = getattr(server_error, 'message', str(server_error))
+                            if "could not start server" in error_msg:
+                                # Don't count this as a security issue, just a connection issue
+                                pass
+                            else:
+                                issues.append({
+                                    "severity": "MEDIUM",
+                                    "title": f"Server error: {server_name}",
+                                    "server": server_name,
+                                    "description": error_msg,
+                                    "recommendation": "Check server configuration and installation"
+                                })
+
+                        # Check server configuration for basic security issues
+                        if hasattr(server_result, 'server'):
+                            server_config = server_result.server
+                            command = getattr(server_config, 'command', '')
+                            args = getattr(server_config, 'args', [])
+
+                            # Check for high-risk commands
+                            high_risk_commands = ["bash", "sh", "cmd", "powershell", "python", "node", "eval", "exec"]
+                            if any(risk == command.lower() for risk in high_risk_commands):
+                                issues.append({
+                                    "severity": "HIGH",
+                                    "title": f"High-risk command in server '{server_name}'",
+                                    "server": server_name,
+                                    "description": f"Server uses potentially dangerous command: {command}",
+                                    "recommendation": "Use a dedicated executable instead of shell commands"
+                                })
+
+                            # Check for dangerous arguments
+                            args_str = " ".join(str(arg) for arg in args)
+                            dangerous_patterns = ["eval", "exec", "-c", "--eval", "rm -rf"]
+                            if any(pattern in args_str.lower() for pattern in dangerous_patterns):
+                                issues.append({
+                                    "severity": "CRITICAL",
+                                    "title": f"Dangerous arguments in server '{server_name}'",
+                                    "server": server_name,
+                                    "description": f"Server uses dangerous arguments: {args_str}",
+                                    "recommendation": "Review and remove dangerous command patterns"
+                                })
+
+                        # Process scan results if available
+                        if result and isinstance(result, list):
+                            for tool_result in result:
+                                if hasattr(tool_result, 'messages'):
+                                    messages = getattr(tool_result, 'messages', [])
+                                    for msg in messages:
+                                        if isinstance(msg, str):
+                                            # Parse common mcp-scan warning patterns
+                                            if "prompt injection" in msg.lower():
+                                                issues.append({
+                                                    "severity": "HIGH",
+                                                    "title": "Prompt injection risk",
+                                                    "server": server_name,
+                                                    "description": msg,
+                                                    "recommendation": "Review and sanitize tool descriptions"
+                                                })
+                                            elif "malicious" in msg.lower():
+                                                issues.append({
+                                                    "severity": "CRITICAL",
+                                                    "title": "Malicious behavior detected",
+                                                    "server": server_name,
+                                                    "description": msg,
+                                                    "recommendation": "Remove this server immediately"
+                                                })
+                                            elif "suspicious" in msg.lower():
+                                                issues.append({
+                                                    "severity": "MEDIUM",
+                                                    "title": "Suspicious behavior",
+                                                    "server": server_name,
+                                                    "description": msg,
+                                                    "recommendation": "Review server configuration and permissions"
+                                                })
+
+        # Handle old dictionary format (fallback)
+        elif isinstance(raw_results, dict):
+            results_data = raw_results
+
+            # Legacy format parsing
             if "servers" in results_data:
                 server_count = len(results_data.get("servers", []))
 
-            # Extract issues from scan results
             for server_name, server_data in results_data.items():
-                if isinstance(server_data, dict):
-                    server_count += 1
-
+                if isinstance(server_data, dict) and server_name not in ["servers", "error"]:
                     # Check for various issue indicators
                     if server_data.get("malicious"):
                         issues.append({
@@ -329,9 +403,10 @@ class MCPValidator:
             # Check for suspicious commands
             command = server_config.get("command", "")
             args = server_config.get("args", [])
+            args_str = " ".join(str(arg) for arg in args)
 
-            # High risk commands
-            high_risk_commands = ["bash", "sh", "cmd", "powershell", "python", "node", "eval", "exec"]
+            # High risk commands (shells and direct eval/exec)
+            high_risk_commands = ["bash", "sh", "cmd", "powershell", "eval", "exec"]
             if any(risk_cmd in command.lower() for risk_cmd in high_risk_commands):
                 issues.append({
                     "severity": "HIGH",
@@ -340,6 +415,19 @@ class MCPValidator:
                     "description": f"Server uses potentially dangerous command: {command}",
                     "recommendation": "Review if this command is necessary and comes from a trusted source"
                 })
+
+            # Check for dangerous Python/Node usage
+            if "python" in command.lower() or "node" in command.lower():
+                # Only flag if using dangerous flags
+                dangerous_flags = ["-c", "--command", "eval", "exec", "-e", "--eval"]
+                if any(flag in args_str.lower() for flag in dangerous_flags):
+                    issues.append({
+                        "severity": "HIGH",
+                        "title": f"Dangerous interpreter usage in server '{server_name}'",
+                        "server": server_name,
+                        "description": f"Server uses {command} with potentially dangerous flags",
+                        "recommendation": "Use a dedicated script file instead of inline code execution"
+                    })
 
             # Check for suspicious arguments
             suspicious_patterns = [
@@ -354,7 +442,6 @@ class MCPValidator:
                 ("--no-sandbox", "Sandbox disabled"),
             ]
 
-            args_str = " ".join(str(arg) for arg in args)
             for pattern, description in suspicious_patterns:
                 if pattern in args_str.lower() or pattern in command.lower():
                     issues.append({

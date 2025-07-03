@@ -907,7 +907,7 @@ async def scan_for_secrets(
 
 @mcp.tool
 async def validate_mcp_security(
-    agent_name: Annotated[str, Field(description="The coding agent/IDE you are running in. Valid values: 'claude' (for Claude Desktop/Claude Code), 'cursor' (for Cursor IDE), 'vscode' (for VSCode), 'windsurf' (for Windsurf), 'continue' (for Continue.dev), or 'custom' (if config path will be provided)")],
+    agent_name: Annotated[str, Field(description="The coding assistant/IDE you are running in. IMPORTANT: Use your actual assistant name when asked 'who are you?'. Valid values: 'claude' (if you are Claude), 'cline' (if you are Cline), 'cursor' (for Cursor IDE), 'vscode' (for VSCode), 'windsurf' (for Windsurf), 'continue' (for Continue.dev), or 'custom' (if config path will be provided)")],
     config_path: Annotated[str | None, Field(description="Optional: Absolute path to MCP configuration file. Only needed if agent_name is 'custom' or if the config is in a non-standard location. IMPORTANT: Use absolute paths (e.g., /home/user/.config/app/mcp.json)")] = None,
     mode: Annotated[str, Field(description="Validation mode: 'scan' for comprehensive analysis, 'inspect' for quick security check")] = "scan",
     local_only: Annotated[bool, Field(description="Use only local validation without external API calls. Set to False for enhanced detection")] = True
@@ -916,6 +916,7 @@ async def validate_mcp_security(
 
     IMPORTANT: You will need READ PERMISSION to access configuration directories:
     - Claude: ~/.claude/ or ~/Library/Application Support/Claude/
+    - Cline: ~/.cursor/mcp.json (Cline uses VS Code/Cursor directories)
     - Cursor: ~/.cursor/ or ~/Library/Application Support/Cursor/
     - VSCode: ~/.vscode/ or ~/Library/Application Support/Code/
     - Windsurf: ~/.windsurf/ or ~/Library/Application Support/Windsurf/
@@ -935,13 +936,17 @@ async def validate_mcp_security(
     - ANY non-MCP security checks
 
     HOW TO USE:
-    1. Identify which agent you're running in (Claude, Cursor, VSCode, etc.)
-    2. Call this tool with the agent_name parameter
+    1. Identify which assistant/agent you are (ask yourself "who are you?")
+       - If you answer "I am Claude", use agent_name="claude"
+       - If you answer "I am Cline", use agent_name="cline"
+       - For IDEs, use the IDE name (cursor, vscode, etc.)
+    2. Call this tool with the correct agent_name parameter
     3. The tool will automatically find and scan all MCP configurations
 
     This tool automatically finds MCP configuration files in standard locations:
     - Claude Desktop: ~/.claude/claude_desktop_config.json
     - Claude Code: ~/.claude/settings.local.json
+    - Cline: ~/.cursor/mcp.json or ~/.vscode/mcp.json
     - Cursor: ~/.cursor/config.json or project .cursorrules with MCP
     - VSCode: Workspace settings or user settings with MCP extensions
     - Custom: Provide the full path to your MCP config file
@@ -982,6 +987,9 @@ async def validate_mcp_security(
                     home / ".claude" / "settings.local.json",  # Claude Code settings
                     home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
                 ],
+                "cline": [
+                    # Cline settings need to be searched recursively
+                ],
                 "cursor": [
                     home / ".cursor" / "mcp.json",  # Primary Cursor MCP config
                     home / ".cursor" / "config.json",
@@ -1008,14 +1016,22 @@ async def validate_mcp_security(
                 return f"⚠️  **Error**: Unknown agent '{agent_name}'. Valid agents: {', '.join(sorted(agent_configs.keys()))}"
 
             # Find existing config files
-            for path in agent_configs[agent_name.lower()]:
-                if "*" in str(path):
-                    # Handle glob patterns
-                    for match in path.parent.glob(path.name):
-                        if match.exists():
-                            config_paths.append(match)
-                elif path.exists():
-                    config_paths.append(path)
+            if agent_name.lower() == "cline":
+                # Special handling for Cline - search recursively for cline_mcp_settings.json
+                config_base = home / ".config"
+                if config_base.exists():
+                    for cline_config in config_base.rglob("cline_mcp_settings.json"):
+                        config_paths.append(cline_config)
+                        break  # Use the first one found
+            else:
+                for path in agent_configs[agent_name.lower()]:
+                    if "*" in str(path):
+                        # Handle glob patterns
+                        for match in path.parent.glob(path.name):
+                            if match.exists():
+                                config_paths.append(match)
+                    elif path.exists():
+                        config_paths.append(path)
 
         if not config_paths:
             return f"""⚠️  **No MCP configuration found for {agent_name}**
