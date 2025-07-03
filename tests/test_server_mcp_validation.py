@@ -1,121 +1,33 @@
-"""Tests for MCP validation tool in server.py."""
+"""Simple tests for the new MCP validation API."""
 
+import json
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-# Import the actual function, not the decorated one
+# Import the actual function
 import vulnicheck.server
 
-# Get the actual function from the decorated tool
 validate_mcp_security_func = vulnicheck.server.validate_mcp_security.fn
 
 
 @pytest.mark.asyncio
-async def test_validate_mcp_security_no_issues():
-    """Test validation with no security issues found."""
+async def test_validate_mcp_security_unknown_agent():
+    """Test validation with unknown agent name."""
     mock_validator = AsyncMock()
-    mock_validator.validate_config.return_value = {
-        "server_count": 2,
-        "issue_count": 0,
-        "issues": []
-    }
+    with patch("vulnicheck.server.mcp_validator", mock_validator), \
+         patch("vulnicheck.server._ensure_clients_initialized"):
+        result = await validate_mcp_security_func(agent_name="unknown_agent", mode="scan", local_only=True)
 
-    with patch("vulnicheck.server.mcp_validator", mock_validator), patch("vulnicheck.server._ensure_clients_initialized"):
-            result = await validate_mcp_security_func(mode="scan", local_only=True)
-
-    assert "No security issues detected" in result
-    assert "Your MCP configuration appears to be secure" in result
-    assert "LOW RISK" in result
-    mock_validator.validate_config.assert_called_once_with(
-        config_json=None,
-        mode="scan"
-    )
+    assert "Unknown agent 'unknown_agent'" in result
+    assert "Valid agents:" in result
 
 
 @pytest.mark.asyncio
-async def test_validate_mcp_security_critical_issues():
-    """Test validation with critical security issues."""
-    mock_validator = AsyncMock()
-    mock_validator.validate_config.return_value = {
-        "server_count": 1,
-        "issue_count": 2,
-        "issues": [
-            {
-                "severity": "CRITICAL",
-                "title": "Malicious server detected",
-                "server": "evil-server",
-                "description": "This server is known to be malicious",
-                "recommendation": "Remove immediately"
-            },
-            {
-                "severity": "HIGH",
-                "title": "Prompt injection risk",
-                "server": "vulnerable-server",
-                "description": "Tool descriptions contain injection attempts",
-                "recommendation": "Review and sanitize"
-            }
-        ]
-    }
-
-    with patch("vulnicheck.server.mcp_validator", mock_validator), patch("vulnicheck.server._ensure_clients_initialized"):
-            result = await validate_mcp_security_func(mode="scan", local_only=True)
-
-    assert "CRITICAL Severity Issues (1)" in result
-    assert "HIGH Severity Issues (1)" in result
-    assert "Malicious server detected" in result
-    assert "HIGH RISK DETECTED" in result
-    assert "Do NOT perform sensitive operations" in result
-
-
-@pytest.mark.asyncio
-async def test_validate_mcp_security_medium_issues():
-    """Test validation with medium severity issues."""
-    mock_validator = AsyncMock()
-    mock_validator.validate_config.return_value = {
-        "server_count": 3,
-        "issue_count": 1,
-        "issues": [
-            {
-                "severity": "MEDIUM",
-                "title": "Suspicious tool behavior",
-                "server": "questionable-server",
-                "description": "Tool has unusual permissions",
-                "recommendation": "Review tool permissions"
-            }
-        ]
-    }
-
-    with patch("vulnicheck.server.mcp_validator", mock_validator), patch("vulnicheck.server._ensure_clients_initialized"):
-            result = await validate_mcp_security_func(mode="inspect", local_only=False)
-
-    assert "MEDIUM Severity Issues (1)" in result
-    assert "MODERATE RISK DETECTED" in result
-    assert "Exercise caution with file operations" in result
-    mock_validator.local_only = False  # Check that setting was updated
-
-
-@pytest.mark.asyncio
-async def test_validate_mcp_security_with_error():
-    """Test validation when an error occurs."""
-    mock_validator = AsyncMock()
-    mock_validator.validate_config.return_value = {
-        "error": "Failed to connect to MCP server",
-        "server_count": 0,
-        "issue_count": 0,
-        "issues": []
-    }
-
-    with patch("vulnicheck.server.mcp_validator", mock_validator), patch("vulnicheck.server._ensure_clients_initialized"):
-            result = await validate_mcp_security_func(mode="scan")
-
-    assert "Validation Error" in result
-    assert "Failed to connect to MCP server" in result
-
-
-@pytest.mark.asyncio
-async def test_validate_mcp_security_with_config_json():
-    """Test validation with JSON configuration."""
+async def test_validate_mcp_security_custom_config_no_issues():
+    """Test validation with custom config path - no issues."""
     mock_validator = AsyncMock()
     mock_validator.validate_config.return_value = {
         "server_count": 1,
@@ -123,65 +35,76 @@ async def test_validate_mcp_security_with_config_json():
         "issues": []
     }
 
-    config_json = '{"mcpServers": {"test": {"command": "test"}}}'
+    # Create a real temporary file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        config = {"mcpServers": {"test": {"command": "test"}}}
+        f.write(json.dumps(config))
+        f.flush()
+        temp_path = f.name
 
-    with patch("vulnicheck.server.mcp_validator", mock_validator), patch("vulnicheck.server._ensure_clients_initialized"):
-            await validate_mcp_security_func(
+    try:
+        with patch("vulnicheck.server.mcp_validator", mock_validator), \
+             patch("vulnicheck.server._ensure_clients_initialized"):
+            result = await validate_mcp_security_func(
+                agent_name="custom",
+                config_path=temp_path,
                 mode="scan",
-                config_json=config_json,
                 local_only=True
             )
 
-    mock_validator.validate_config.assert_called_once_with(
-        config_json=config_json,
-        mode="scan"
-    )
+        assert "No security issues detected" in result
+        assert "Your MCP configuration appears to be secure" in result
+        assert temp_path in result  # Should show the scanned file
+        mock_validator.validate_config.assert_called_once()
+    finally:
+        Path(temp_path).unlink()
 
 
 @pytest.mark.asyncio
-async def test_validate_mcp_security_exception_handling():
-    """Test validation when an exception is raised."""
-    mock_validator = AsyncMock()
-    mock_validator.validate_config.side_effect = Exception("Unexpected error")
-
-    with patch("vulnicheck.server.mcp_validator", mock_validator), patch("vulnicheck.server._ensure_clients_initialized"):
-            result = await validate_mcp_security_func(mode="scan")
-
-    assert "Error during MCP security validation" in result
-    assert "Unexpected error" in result
-    assert "mcp-scan is not properly installed" in result
-
-
-@pytest.mark.asyncio
-async def test_validate_mcp_security_mixed_severities():
-    """Test validation with mixed severity issues."""
+async def test_validate_mcp_security_custom_config_with_issues():
+    """Test validation with custom config path - has issues."""
     mock_validator = AsyncMock()
     mock_validator.validate_config.return_value = {
-        "server_count": 4,
-        "issue_count": 5,
-        "issues": [
-            {"severity": "LOW", "title": "Info leak", "server": "s1", "description": "Minor info"},
-            {"severity": "MEDIUM", "title": "Suspicious", "server": "s2", "description": "Hmm"},
-            {"severity": "HIGH", "title": "Dangerous", "server": "s3", "description": "Bad"},
-            {"severity": "MEDIUM", "title": "Suspicious2", "server": "s4", "description": "Hmm2"},
-            {"severity": "UNKNOWN", "title": "Unknown", "server": "s5", "description": "???"},
-        ]
+        "server_count": 1,
+        "issue_count": 1,
+        "issues": [{
+            "severity": "HIGH",
+            "title": "Dangerous command",
+            "server": "risky-server",
+            "description": "Uses bash command",
+            "recommendation": "Review this server"
+        }]
     }
 
-    with patch("vulnicheck.server.mcp_validator", mock_validator), patch("vulnicheck.server._ensure_clients_initialized"):
-            result = await validate_mcp_security_func(mode="scan")
+    # Create a real temporary file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        config = {"mcpServers": {"risky": {"command": "bash", "args": ["-c", "echo test"]}}}
+        f.write(json.dumps(config))
+        f.flush()
+        temp_path = f.name
 
-    # Should prioritize HIGH severity
-    assert "HIGH RISK DETECTED" in result
-    assert "HIGH Severity Issues (1)" in result
-    assert "MEDIUM Severity Issues (2)" in result
-    assert "LOW Severity Issues (1)" in result
-    # UNKNOWN severity should not appear in the grouped output
+    try:
+        with patch("vulnicheck.server.mcp_validator", mock_validator), \
+             patch("vulnicheck.server._ensure_clients_initialized"):
+            result = await validate_mcp_security_func(
+                agent_name="custom",
+                config_path=temp_path,
+                mode="scan"
+            )
+
+        assert "HIGH Severity Issues (1)" in result
+        assert "Dangerous command" in result
+        assert "HIGH RISK DETECTED" in result
+        assert temp_path in result  # Should show which file has the issue
+    finally:
+        Path(temp_path).unlink()
+
+
 
 
 @pytest.mark.asyncio
-async def test_validate_mcp_security_output_format():
-    """Test the output format of the validation report."""
+async def test_validate_mcp_security_output_includes_agent():
+    """Test that output includes the agent name."""
     mock_validator = AsyncMock()
     mock_validator.validate_config.return_value = {
         "server_count": 1,
@@ -189,17 +112,42 @@ async def test_validate_mcp_security_output_format():
         "issues": []
     }
 
-    with patch("vulnicheck.server.mcp_validator", mock_validator), patch("vulnicheck.server._ensure_clients_initialized"):
-            result = await validate_mcp_security_func(mode="scan", local_only=True)
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        config = {"mcpServers": {"test": {"command": "test"}}}
+        f.write(json.dumps(config))
+        f.flush()
+        temp_path = f.name
 
-    # Check for expected sections
-    assert "# MCP Security Self-Validation Report" in result
-    assert "## Summary" in result
-    assert "## Self-Assessment Guidelines" in result
-    assert "## When to Use This Validation" in result
-    assert "## About MCP-Scan" in result
+    try:
+        with patch("vulnicheck.server.mcp_validator", mock_validator), \
+             patch("vulnicheck.server._ensure_clients_initialized"):
+            result = await validate_mcp_security_func(
+                agent_name="cursor",
+                config_path=temp_path,
+                mode="scan"
+            )
 
-    # Check metadata
-    assert "Mode: scan" in result
-    assert "Local Only: True" in result
-    assert "Date:" in result
+        assert "Agent: cursor" in result
+        assert "## Configuration Files Scanned" in result
+        assert temp_path in result
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.asyncio
+async def test_validate_mcp_security_no_config_found():
+    """Test when no config files are found for an agent."""
+    mock_validator = AsyncMock()
+
+    with patch("vulnicheck.server.mcp_validator", mock_validator), \
+         patch("vulnicheck.server._ensure_clients_initialized"), \
+         tempfile.TemporaryDirectory() as temp_dir, \
+         patch("vulnicheck.server.Path.home", return_value=Path(temp_dir)), \
+         patch("vulnicheck.server.Path.cwd", return_value=Path(temp_dir)):
+        result = await validate_mcp_security_func(
+            agent_name="claude",
+            mode="scan"
+        )
+
+    assert "No MCP configuration found for claude" in result
+    assert "Searched locations:" in result

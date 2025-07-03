@@ -1,17 +1,64 @@
 """Tests for MCP security validation functionality."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from vulnicheck.mcp_validator import MCPValidator
 
 
+def test_mcp_scan_policy_loading():
+    """Test that mcp_scan policy loading works with our temporary directory approach."""
+    import os
+    import shutil
+
+    # Clean up any existing module imports
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    from vulnicheck.mcp_validator import EMBEDDED_POLICY_GR
+    if 'mcp_scan' in sys.modules:
+        del sys.modules['mcp_scan']
+    if 'mcp_scan.verify_api' in sys.modules:
+        del sys.modules['mcp_scan.verify_api']
+
+    original_cwd = os.getcwd()
+    temp_dir = tempfile.mkdtemp()
+
+    try:
+        # Create the expected directory structure
+        policy_dir = Path(temp_dir) / "src" / "mcp_scan"
+        policy_dir.mkdir(parents=True)
+        (policy_dir / "policy.gr").write_text(EMBEDDED_POLICY_GR)
+
+        # Change to temp directory
+        os.chdir(temp_dir)
+
+        # Import mcp_scan
+        import mcp_scan.verify_api
+
+        # Test that get_policy works
+        policy_content = mcp_scan.verify_api.get_policy()
+        assert isinstance(policy_content, str)
+        assert "prompt injection" in policy_content
+        assert len(policy_content) > 0
+
+    except ImportError:
+        pytest.skip("mcp_scan not installed")
+    finally:
+        # Restore working directory
+        os.chdir(original_cwd)
+        # Clean up temp directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 @pytest.fixture
 def mock_mcp_scanner():
     """Mock MCPScanner for testing."""
-    with patch("vulnicheck.mcp_validator.MCPScanner") as mock:
+    # Since MCPScanner is imported lazily, we need to patch mcp_scan.MCPScanner
+    with patch("mcp_scan.MCPScanner") as mock:
         # Create async context manager mock
         scanner_instance = AsyncMock()
         scanner_instance.scan = AsyncMock()
@@ -23,6 +70,77 @@ def mock_mcp_scanner():
         mock.return_value = scanner_instance
 
         yield mock, scanner_instance
+
+
+@pytest.mark.asyncio
+async def test_validate_config_json_input():
+    """Test validation with JSON string input."""
+    validator = MCPValidator(local_only=True)
+
+    # Test with invalid JSON
+    result = await validator.validate_config("invalid json", mode="scan")
+    assert "error" in result
+    assert "Invalid JSON" in result["error"]
+    assert result["issue_count"] == 0
+
+    # Test with valid JSON
+    config = {
+        "mcpServers": {
+            "test": {
+                "command": "echo",
+                "args": ["test"],
+                "env": {}
+            }
+        }
+    }
+
+    with patch("mcp_scan.MCPScanner") as mock_scanner:
+        mock_instance = AsyncMock()
+        mock_instance.scan = AsyncMock(return_value={})
+        mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_scanner.return_value = mock_instance
+
+        result = await validator.validate_config(json.dumps(config), mode="scan")
+
+        # Check that a temporary file was created with the config
+        assert mock_scanner.called
+        call_args = mock_scanner.call_args
+        assert "files" in call_args.kwargs
+        assert len(call_args.kwargs["files"]) == 1
+        assert call_args.kwargs["files"][0].endswith(".json")
+
+
+@pytest.mark.asyncio
+async def test_validate_config_policy_file_error():
+    """Test handling of policy.gr file not found error."""
+    validator = MCPValidator(local_only=True)
+
+    config = {
+        "mcpServers": {
+            "test": {
+                "command": "test",
+                "args": [],
+                "env": {}
+            }
+        }
+    }
+
+    with patch("mcp_scan.MCPScanner") as mock_scanner:
+        mock_instance = AsyncMock()
+        # Simulate FileNotFoundError for policy.gr
+        mock_instance.__aenter__.side_effect = FileNotFoundError(
+            "[Errno 2] No such file or directory: 'src/mcp_scan/policy.gr'"
+        )
+        mock_scanner.return_value = mock_instance
+
+        result = await validator.validate_config(json.dumps(config), mode="scan")
+
+        # Should fall back to basic validation
+        assert "error" not in result
+        assert "note" in result
+        assert "Basic validation performed" in result["note"]
+        assert result["server_count"] == 1  # Basic validation still counts servers
 
 
 @pytest.mark.asyncio
@@ -42,8 +160,9 @@ async def test_validate_config_scan_mode(mock_mcp_scanner):
     }
 
     validator = MCPValidator(local_only=True)
+    config = {"mcpServers": {"test-server": {"command": "test", "args": []}}}
     results = await validator.validate_config(
-        config_paths=["/path/to/config.json"],
+        config_json=json.dumps(config),
         mode="scan"
     )
 
@@ -70,8 +189,9 @@ async def test_validate_config_inspect_mode(mock_mcp_scanner):
     }
 
     validator = MCPValidator(local_only=False)
+    config = {"mcpServers": {"server1": {"command": "cmd1"}, "server2": {"command": "cmd2"}}}
     results = await validator.validate_config(
-        config_paths=["/path/to/config.json"],
+        config_json=json.dumps(config),
         mode="inspect"
     )
 
@@ -93,8 +213,9 @@ async def test_validate_config_malicious_server(mock_mcp_scanner):
     }
 
     validator = MCPValidator()
+    config = {"mcpServers": {"evil-server": {"command": "evil", "args": []}}}
     results = await validator.validate_config(
-        config_paths=["/path/to/config.json"],
+        config_json=json.dumps(config),
         mode="scan"
     )
 
@@ -104,15 +225,14 @@ async def test_validate_config_malicious_server(mock_mcp_scanner):
 
 
 @pytest.mark.asyncio
-async def test_validate_config_no_config_files():
-    """Test behavior when no config files are found."""
+async def test_validate_config_empty_json():
+    """Test behavior when empty JSON is provided."""
     validator = MCPValidator()
 
-    # Mock _detect_config_paths to return empty list
-    with patch.object(validator, "_detect_config_paths", return_value=[]):
-        results = await validator.validate_config(mode="scan")
+    # Test with empty object
+    results = await validator.validate_config("{}", mode="scan")
 
-    assert results["error"] == "No MCP configuration files found"
+    # Should process but find no servers
     assert results["server_count"] == 0
     assert results["issue_count"] == 0
 
@@ -126,8 +246,9 @@ async def test_validate_config_error_handling(mock_mcp_scanner):
     mock_instance.scan.side_effect = Exception("Scan failed")
 
     validator = MCPValidator()
+    config = {"mcpServers": {"evil-server": {"command": "evil", "args": []}}}
     results = await validator.validate_config(
-        config_paths=["/path/to/config.json"],
+        config_json=json.dumps(config),
         mode="scan"
     )
 
@@ -136,25 +257,7 @@ async def test_validate_config_error_handling(mock_mcp_scanner):
     assert results["issue_count"] == 0
 
 
-def test_detect_config_paths():
-    """Test automatic config path detection."""
-    validator = MCPValidator()
-
-    # Mock Path.exists to return True for claude config
-    with patch("vulnicheck.mcp_validator.Path") as mock_path_class:
-        # Create a mock path instance
-        mock_path = MagicMock()
-        mock_path.exists.return_value = True
-        mock_path.__str__.return_value = "/home/user/.config/claude/claude_desktop_config.json"
-
-        # Make Path() return our mock
-        mock_path_class.home.return_value.__truediv__.return_value = mock_path
-        mock_path_class.return_value = mock_path
-
-        paths = validator._detect_config_paths()
-
-        # Should find at least one config
-        assert len(paths) > 0
+# Removed test_detect_config_paths as _detect_config_paths is no longer used in the new API
 
 
 def test_format_results_json_string():
@@ -211,8 +314,9 @@ async def test_validate_config_invalid_mode(mock_mcp_scanner):
     mock_class, mock_instance = mock_mcp_scanner
 
     validator = MCPValidator()
+    config = {"mcpServers": {"test": {"command": "test"}}}
     results = await validator.validate_config(
-        config_paths=["/path/to/config.json"],
+        config_json=json.dumps(config),
         mode="invalid"
     )
 
@@ -221,16 +325,7 @@ async def test_validate_config_invalid_mode(mock_mcp_scanner):
     assert "Invalid mode: invalid" in results["error"]
 
 
-def test_detect_config_paths_with_env_var():
-    """Test config path detection with environment variable."""
-    validator = MCPValidator()
-
-    with patch("pathlib.Path.exists") as mock_exists, patch.dict("os.environ", {"MCP_CONFIG_PATH": "/custom/config.json"}):
-        mock_exists.return_value = True
-
-        paths = validator._detect_config_paths()
-
-        assert "/custom/config.json" in paths
+# Removed test_detect_config_paths_with_env_var as _detect_config_paths is no longer used in the new API
 
 
 def test_format_results_complex_scan():
@@ -273,8 +368,9 @@ async def test_validate_config_with_mcp_scanner_init_error(mock_mcp_scanner):
     mock_class.side_effect = ImportError("mcp-scan not installed")
 
     validator = MCPValidator()
+    config = {"mcpServers": {"evil-server": {"command": "evil", "args": []}}}
     results = await validator.validate_config(
-        config_paths=["/path/to/config.json"],
+        config_json=json.dumps(config),
         mode="scan"
     )
 

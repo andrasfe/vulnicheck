@@ -68,9 +68,6 @@ clean: ## Clean up build artifacts and cache files
 build: clean ## Build distribution packages
 	uv build
 
-.PHONY: docker-build
-docker-build: ## Build Docker images
-	./scripts/build-docker.sh
 
 .PHONY: run
 run: ## Run the VulniCheck server

@@ -26,20 +26,46 @@ This software incorporates or references data from publicly available sources, i
 
 ## Quick Start
 
-**Requirements:** Docker and Docker Compose
+**Requirements:** Python 3.10 or higher
 
-1. **Install and run:**
+1. **Install:**
 ```bash
 git clone https://github.com/andrasfe/vulnicheck.git
 cd vulnicheck
-./setup.sh
+./run-local.sh
 ```
+
+This script will:
+- Create a virtual environment
+- Install all dependencies
+- Show you how to configure Claude
 
 2. **Configure your IDE:**
 
 **Claude Desktop:**
+
+Add to your Claude MCP settings at `~/.claude.json` (or through the UI):
+```json
+{
+  "mcpServers": {
+    "vulnicheck": {
+      "command": "/path/to/vulnicheck/.venv/bin/python",
+      "args": ["-m", "vulnicheck.server"]
+    }
+  }
+}
+```
+
+**Claude Code:**
+
+Use the CLI to add the server:
 ```bash
-claude mcp add vulnicheck --transport sse http://localhost:3000/sse
+claude mcp add vulnicheck -- /path/to/vulnicheck/.venv/bin/python -m vulnicheck.server
+```
+
+Or with environment variables:
+```bash
+claude mcp add vulnicheck -e NVD_API_KEY=your_key -e GITHUB_TOKEN=your_token -- /path/to/vulnicheck/.venv/bin/python -m vulnicheck.server
 ```
 
 **VS Code / Cursor:**
@@ -48,10 +74,38 @@ Add to your MCP settings:
 {
   "mcpServers": {
     "vulnicheck": {
-      "url": "http://localhost:3000/sse"
+      "command": "/path/to/vulnicheck/.venv/bin/python",
+      "args": ["-m", "vulnicheck.server"]
     }
   }
 }
+```
+
+## Installation Options
+
+### Option 1: Quick Start with Script (Recommended)
+Use the `./run-local.sh` script as shown above. It handles everything automatically.
+
+### Option 2: Manual Installation
+```bash
+# Create and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install vulnicheck
+pip install -e .
+
+# Run the server
+python -m vulnicheck.server
+```
+
+### Option 3: System-wide Installation
+```bash
+# Install globally (not recommended)
+pip install .
+
+# Run from anywhere
+vulnicheck
 ```
 
 ## Usage
@@ -68,18 +122,16 @@ Once the service is running and your IDE is configured, you can interact with Vu
 ### Managing the Service
 
 ```bash
-# View logs
-docker-compose logs -f
-
-# Stop the service
-docker-compose down
-
-# Restart the service
-docker-compose restart
-
-# Rebuild after updates
+# Update the installation
 git pull
-./setup.sh
+./run-local.sh
+
+# Test the server manually
+python -m vulnicheck.server
+# (Press Ctrl+C to stop)
+
+# Run with API keys for enhanced rate limits
+NVD_API_KEY=your-key GITHUB_TOKEN=your-token python -m vulnicheck.server
 ```
 
 ## Available Tools
@@ -179,18 +231,22 @@ Scan files or directories for exposed secrets and credentials using detect-secre
 Validate MCP server security configuration for self-assessment. Allows LLMs to check their own security posture using mcp-scan integration.
 
 **Parameters:**
+- `agent_name` (required): The coding agent/IDE being used (e.g., 'claude', 'cursor', 'vscode', 'windsurf', 'continue', or 'custom')
+- `config_path` (optional): Custom path to MCP configuration file (only needed if agent_name is 'custom' or config is in non-standard location)
 - `mode` (optional): 'scan' for full analysis or 'inspect' for quick check (default: 'scan')
-- `config_json` (optional): JSON string containing MCP configuration (auto-detects if not provided)
 - `local_only` (optional): Use local validation only, no external API calls (default: true)
 
 **Example:**
 ```json
 {
   "tool": "validate_mcp_security",
+  "agent_name": "claude",
   "mode": "scan",
   "local_only": true
 }
 ```
+
+**Note:** When running VulniCheck locally, this tool can access your local configuration files (e.g., `~/.claude.json`, `~/.cursor/config.json`). The tool automatically searches standard configuration locations for each agent.
 
 This tool helps LLMs self-validate for:
 - Prompt injection in tool descriptions
@@ -244,8 +300,8 @@ Create a `.env` file in the project root for optional configuration:
 # NVD API Key (recommended for better rate limits)
 NVD_API_KEY=your-api-key-here
 
-# Custom port (default: 3000)
-MCP_PORT=3001
+# GitHub token for better rate limits (optional)
+GITHUB_TOKEN=your-github-token
 
 # Cache TTL in seconds (default: 900)
 CACHE_TTL=1800
@@ -317,42 +373,26 @@ make format
 
 ## Troubleshooting
 
-### Service Issues
+### API Rate Limiting
 
-**Port already in use**
-```bash
-# Change port in .env file
-echo "MCP_PORT=3001" >> .env
-./setup.sh
-```
-
-**Service won't start**
-```bash
-# Check logs
-docker-compose logs
-
-# Rebuild from scratch
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-**IDE can't connect**
-- Ensure service is running: `docker-compose ps`
-- Check firewall settings for port 3000
-- Try connecting directly: `curl http://localhost:3000`
-
-### API Issues
-
-**Rate limiting errors**
+If you encounter rate limiting errors:
 - Get a free NVD API key: https://nvd.nist.gov/developers/request-an-api-key
-- Add to `.env` file: `NVD_API_KEY=your-key-here`
 - Get a GitHub token: https://github.com/settings/tokens
-- Add to `.env` file: `GITHUB_TOKEN=your-token-here`
+- Add them to your environment or `.env` file:
+  ```bash
+  export NVD_API_KEY=your-key-here
+  export GITHUB_TOKEN=your-token-here
+  ```
 
-**Network timeout errors**
-- Check internet connection
-- Increase timeout in `.env`: `REQUEST_TIMEOUT=60`
+### Common Issues
+
+**MCP server not found**
+- Ensure you've run the server with: `python -m vulnicheck.server`
+- Check that you've added it to Claude Code: `claude mcp add vulnicheck -- /path/to/vulnicheck/.venv/bin/python -m vulnicheck.server`
+
+**Permission errors**
+- The MCP validator tool needs read access to configuration directories
+- On macOS, you may need to grant terminal/IDE access to folders like `~/.claude/`
 
 ## License
 
