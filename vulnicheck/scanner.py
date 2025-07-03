@@ -1,5 +1,6 @@
 import ast
 import hashlib
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,8 @@ from typing import Any
 import toml
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
+
+logger = logging.getLogger(__name__)
 
 
 class DependencyScanner:
@@ -82,8 +85,11 @@ class DependencyScanner:
         """Parse pyproject.toml file."""
         deps = []
 
-        with open(path) as f:
-            data = toml.load(f)
+        try:
+            with open(path) as f:
+                data = toml.load(f)
+        except Exception as e:
+            raise ValueError(f"Failed to parse pyproject.toml: {e}") from e
 
         # Standard dependencies
         for dep in data.get("project", {}).get("dependencies", []):
@@ -210,7 +216,9 @@ class DependencyScanner:
         try:
             req = Requirement(line)
             return req.name, str(req.specifier) if req.specifier else ""
-        except Exception:
+        except Exception as e:
+            # Log the error for debugging
+            logger.debug(f"Failed to parse requirement '{line}': {e}")
             # Fallback: simple regex parsing
             match = re.match(r"^([a-zA-Z0-9._-]+)(.*)", line)
             if match:
