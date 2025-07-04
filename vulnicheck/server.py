@@ -907,7 +907,7 @@ async def scan_for_secrets(
 
 @mcp.tool
 async def validate_mcp_security(
-    agent_name: Annotated[str, Field(description="The coding assistant/IDE you are running in. IMPORTANT: Use your actual assistant name when asked 'who are you?'. Valid values: 'claude' (if you are Claude), 'cline' (if you are Cline), 'cursor' (for Cursor IDE), 'vscode' (for VSCode), 'windsurf' (for Windsurf), 'continue' (for Continue.dev), or 'custom' (if config path will be provided)")],
+    agent_name: Annotated[str, Field(description="The coding assistant/IDE you are running in. IMPORTANT: Use your actual assistant name when asked 'who are you?'. Valid values: 'claude' (if you are Claude), 'cline' (if you are Cline), 'cursor' (for Cursor IDE), 'vscode' (for VSCode), 'copilot' or 'github copilot' (if you are GitHub Copilot), 'windsurf' (for Windsurf), 'continue' (for Continue.dev), or 'custom' (if config path will be provided)")],
     config_path: Annotated[str | None, Field(description="Optional: Absolute path to MCP configuration file. Only needed if agent_name is 'custom' or if the config is in a non-standard location. IMPORTANT: Use absolute paths (e.g., /home/user/.config/app/mcp.json)")] = None,
     mode: Annotated[str, Field(description="Validation mode: 'scan' for comprehensive analysis, 'inspect' for quick security check")] = "scan",
     local_only: Annotated[bool, Field(description="Use only local validation without external API calls. Set to False for enhanced detection")] = True
@@ -919,6 +919,7 @@ async def validate_mcp_security(
     - Cline: ~/.cursor/mcp.json (Cline uses VS Code/Cursor directories)
     - Cursor: ~/.cursor/ or ~/Library/Application Support/Cursor/
     - VSCode: ~/.vscode/ or ~/Library/Application Support/Code/
+    - GitHub Copilot: ~/.vscode/ or ~/Library/Application Support/Code/ (searches for MCP extensions)
     - Windsurf: ~/.windsurf/ or ~/Library/Application Support/Windsurf/
     - Continue: ~/.continue/
 
@@ -949,6 +950,7 @@ async def validate_mcp_security(
     - Cline: ~/.cursor/mcp.json or ~/.vscode/mcp.json
     - Cursor: ~/.cursor/config.json or project .cursorrules with MCP
     - VSCode: Workspace settings or user settings with MCP extensions
+    - GitHub Copilot: Searches VS Code directories for MCP extension configs
     - Custom: Provide the full path to your MCP config file
 
     Detects:
@@ -990,6 +992,12 @@ async def validate_mcp_security(
                 "cline": [
                     # Cline settings need to be searched recursively
                 ],
+                "copilot": [
+                    # GitHub Copilot settings need to be searched recursively
+                ],
+                "github copilot": [
+                    # GitHub Copilot settings need to be searched recursively
+                ],
                 "cursor": [
                     home / ".cursor" / "mcp.json",  # Primary Cursor MCP config
                     home / ".cursor" / "config.json",
@@ -1023,6 +1031,26 @@ async def validate_mcp_security(
                     for cline_config in config_base.rglob("cline_mcp_settings.json"):
                         config_paths.append(cline_config)
                         break  # Use the first one found
+            elif agent_name.lower() in ["vscode", "copilot", "github copilot"]:
+                # Special handling for VS Code and GitHub Copilot - search VS Code directories
+                search_dirs = [
+                    home / ".vscode",
+                    home / "Library" / "Application Support" / "Code",
+                ]
+                for search_dir in search_dirs:
+                    if search_dir.exists():
+                        # Look for MCP-related config files
+                        for config_file in search_dir.rglob("**/saoud.mcp-manager*/config.json"):
+                            config_paths.append(config_file)
+                        for config_file in search_dir.rglob("settings.json"):
+                            # Check if it contains MCP configuration
+                            try:
+                                content = config_file.read_text()
+                                data = json.loads(content)
+                                if "mcpServers" in data or "mcp" in data:
+                                    config_paths.append(config_file)
+                            except (json.JSONDecodeError, OSError):
+                                pass
             else:
                 for path in agent_configs[agent_name.lower()]:
                     if "*" in str(path):
