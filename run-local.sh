@@ -58,16 +58,22 @@ echo ""
 # Show how to configure in Claude
 echo -e "${GREEN}Setup Complete!${NC}"
 echo ""
-echo "To use with Claude, add this to your MCP settings:"
+echo "To add VulniCheck to Claude, run this command:"
+echo ""
+echo -e "${YELLOW}claude mcp add vulnicheck -- $(pwd)/.venv/bin/python -m vulnicheck.server${NC}"
+echo ""
+echo -e "${RED}Important: After adding the server, you must exit Claude and restart it for the changes to take effect!${NC}"
+echo ""
+echo "Or manually add to your MCP settings:"
 echo ""
 echo -e "${YELLOW}{
   \"mcpServers\": {
     \"vulnicheck\": {
-      \"command\": \"$(which python)\",
+      \"command\": \"$(pwd)/.venv/bin/python\",
       \"args\": [\"-m\", \"vulnicheck.server\"]
     }
   }
 }${NC}"
 echo ""
 echo "Or run manually for testing:"
-echo -e "${YELLOW}python -m vulnicheck.server${NC}"
+echo -e "${YELLOW}$(pwd)/.venv/bin/python -m vulnicheck.server${NC}"

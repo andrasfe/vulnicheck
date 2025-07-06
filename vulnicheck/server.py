@@ -11,6 +11,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from .github_client import GitHubClient
+from .mcp_passthrough import mcp_passthrough
 from .mcp_validator import MCPValidator
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
@@ -40,7 +41,13 @@ mcp_validator = None
 
 def _ensure_clients_initialized() -> None:
     """Ensure clients are initialized when needed."""
-    global osv_client, nvd_client, github_client, scanner, secrets_scanner, mcp_validator
+    global \
+        osv_client, \
+        nvd_client, \
+        github_client, \
+        scanner, \
+        secrets_scanner, \
+        mcp_validator
     if osv_client is None:
         osv_client = OSVClient()
         nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
@@ -154,9 +161,25 @@ def _format_osv_vulnerability(vuln: Any) -> str:
 
 @mcp.tool
 async def check_package_vulnerabilities(
-    package_name: Annotated[str, Field(description="Name of the Python package to check (e.g., 'requests', 'django')")],
-    version: Annotated[str | None, Field(description="Specific version to check (e.g., '2.28.1'). If not provided, checks all versions", default=None)] = None,
-    include_details: Annotated[bool, Field(description="Include detailed CVE information and vulnerability metadata in the response")] = True
+    package_name: Annotated[
+        str,
+        Field(
+            description="Name of the Python package to check (e.g., 'requests', 'django')"
+        ),
+    ],
+    version: Annotated[
+        str | None,
+        Field(
+            description="Specific version to check (e.g., '2.28.1'). If not provided, checks all versions",
+            default=None,
+        ),
+    ] = None,
+    include_details: Annotated[
+        bool,
+        Field(
+            description="Include detailed CVE information and vulnerability metadata in the response"
+        ),
+    ] = True,
 ) -> str:
     """Check a SINGLE Python package for known vulnerabilities.
 
@@ -314,8 +337,18 @@ async def check_package_vulnerabilities(
 
 @mcp.tool
 async def scan_dependencies(
-    file_path: Annotated[str, Field(description="Absolute path to a requirements.txt, pyproject.toml, package-lock.json file, or directory to scan. IMPORTANT: Always use absolute paths (e.g., /home/user/project/requirements.txt)")],
-    include_details: Annotated[bool, Field(description="Include full vulnerability details (CVE info, affected versions, references) vs. summary only")] = False
+    file_path: Annotated[
+        str,
+        Field(
+            description="Absolute path to a requirements.txt, pyproject.toml, package-lock.json file, or directory to scan. IMPORTANT: Always use absolute paths (e.g., /home/user/project/requirements.txt)"
+        ),
+    ],
+    include_details: Annotated[
+        bool,
+        Field(
+            description="Include full vulnerability details (CVE info, affected versions, references) vs. summary only"
+        ),
+    ] = False,
 ) -> str:
     """Scan project dependency FILES for vulnerabilities.
 
@@ -484,6 +517,7 @@ async def scan_dependencies(
 
     except Exception as e:
         import traceback
+
         error_details = traceback.format_exc()
         logger.error(f"Error scanning {file_path}: {e}\n{error_details}")
         return f"Error scanning dependencies: {str(e)}\n\nPlease check:\n1. The file exists and is readable\n2. The file format is supported (requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock)\n3. The file is not corrupted\n\nFile: {file_path}"
@@ -491,7 +525,12 @@ async def scan_dependencies(
 
 @mcp.tool
 async def scan_installed_packages(
-    packages: Annotated[list[dict[str, str]] | None, Field(description="List of packages with name and version to scan. Each item should have 'name' and 'version' keys. If not provided, scans the MCP server's environment.")] = None
+    packages: Annotated[
+        list[dict[str, str]] | None,
+        Field(
+            description="List of packages with name and version to scan. Each item should have 'name' and 'version' keys. If not provided, scans the MCP server's environment."
+        ),
+    ] = None,
 ) -> str:
     """Scan Python packages for vulnerabilities - either from a provided list or the MCP server environment.
 
@@ -538,7 +577,9 @@ async def scan_installed_packages(
     IMPORTANT: All vulnerability data is provided 'AS IS' without warranty.
     See README.md for full disclaimer."""
     try:
-        logger.info(f"Starting scan of installed packages (provided: {len(packages) if packages else 'None'})")
+        logger.info(
+            f"Starting scan of installed packages (provided: {len(packages) if packages else 'None'})"
+        )
         _ensure_clients_initialized()
         assert scanner is not None
 
@@ -558,7 +599,9 @@ async def scan_installed_packages(
         else:
             # Fallback to scanning MCP server environment
             results = await scanner.scan_installed()
-            total_packages = sum(1 for _ in __import__('importlib.metadata').metadata.distributions())
+            total_packages = sum(
+                1 for _ in __import__("importlib.metadata").metadata.distributions()
+            )
 
         logger.info(f"Scan complete, found {len(results)} vulnerable packages")
 
@@ -589,7 +632,9 @@ async def scan_installed_packages(
 
         lines.append("## Vulnerable Packages")
         for package_name, vulns in sorted(results.items()):
-            lines.extend([f"\n### {package_name}", f"Found: {len(vulns)} vulnerabilities"])
+            lines.extend(
+                [f"\n### {package_name}", f"Found: {len(vulns)} vulnerabilities"]
+            )
 
             # Show up to 3 vulnerabilities
             for v in vulns[:3]:
@@ -609,7 +654,12 @@ async def scan_installed_packages(
 
 @mcp.tool
 async def get_cve_details(
-    cve_id: Annotated[str, Field(description="CVE identifier (e.g., 'CVE-2021-44228') or GitHub Security Advisory ID (e.g., 'GHSA-jfh8-c2jp-5v3q')")]
+    cve_id: Annotated[
+        str,
+        Field(
+            description="CVE identifier (e.g., 'CVE-2021-44228') or GitHub Security Advisory ID (e.g., 'GHSA-jfh8-c2jp-5v3q')"
+        ),
+    ],
 ) -> str:
     """Get detailed information about a SPECIFIC CVE or GHSA identifier.
 
@@ -784,8 +834,19 @@ async def get_cve_details(
 
 @mcp.tool
 async def scan_for_secrets(
-    path: Annotated[str, Field(description="Absolute file or directory path to scan for exposed secrets. IMPORTANT: Always use absolute paths (e.g., /home/user/project/src)")],
-    exclude_patterns: Annotated[list[str] | None, Field(description="Glob patterns to exclude from scanning (e.g., ['*.log', 'node_modules/**'])", default=None)] = None
+    path: Annotated[
+        str,
+        Field(
+            description="Absolute file or directory path to scan for exposed secrets. IMPORTANT: Always use absolute paths (e.g., /home/user/project/src)"
+        ),
+    ],
+    exclude_patterns: Annotated[
+        list[str] | None,
+        Field(
+            description="Glob patterns to exclude from scanning (e.g., ['*.log', 'node_modules/**'])",
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Scan files or directories for exposed SECRETS and credentials (NOT vulnerabilities).
 
@@ -906,11 +967,89 @@ async def scan_for_secrets(
 
 
 @mcp.tool
+async def mcp_passthrough_tool(
+    server_name: Annotated[str, Field(description="Name of the target MCP server")],
+    tool_name: Annotated[
+        str, Field(description="Name of the tool to call on the MCP server")
+    ],
+    parameters: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description="Parameters to pass to the tool (default: empty dict)",
+            default=None,
+        ),
+    ] = None,
+    security_context: Annotated[
+        str | None,
+        Field(
+            description="Additional security constraints for this call", default=None
+        ),
+    ] = None,
+) -> str:
+    """Execute an MCP tool call through a security passthrough layer.
+
+    USE THIS TOOL WHEN:
+    - You need to call a tool on another MCP server
+    - The LLM wants to access external MCP server capabilities
+    - You need to add security constraints to MCP calls
+
+    DO NOT USE THIS TOOL FOR:
+    - Direct vulnerability scanning (use the specific scan tools instead)
+    - Internal tool calls within this server
+
+    This tool acts as a security layer between the LLM and MCP servers,
+    intercepting calls and adding security constraints to prevent potentially
+    harmful operations like:
+    - Accessing sensitive system files
+    - Executing dangerous shell commands
+    - Reading files containing secrets or credentials
+    - Making modifications to critical system settings
+
+    The tool will:
+    1. Validate the target server is allowed
+    2. Check parameters for dangerous patterns
+    3. Inject security prompts to guide safe execution
+    4. Return results with security context
+
+    Example dangerous patterns that are blocked:
+    - File paths containing /etc/, /root/, ~/.ssh/, .env, passwords, keys
+    - Commands with sudo, rm -rf, chmod 777, curl|bash patterns
+    - Any operation that could compromise system security
+    """
+    return await mcp_passthrough(
+        server_name=server_name,
+        tool_name=tool_name,
+        parameters=parameters or {},
+        security_context=security_context,
+    )
+
+
+@mcp.tool
 async def validate_mcp_security(
-    agent_name: Annotated[str, Field(description="The coding assistant/IDE you are running in. IMPORTANT: Use your actual assistant name when asked 'who are you?'. Valid values: 'claude' (if you are Claude), 'cline' (if you are Cline), 'cursor' (for Cursor IDE), 'vscode' (for VSCode), 'copilot' or 'github copilot' (if you are GitHub Copilot), 'windsurf' (for Windsurf), 'continue' (for Continue.dev), or 'custom' (if config path will be provided)")],
-    config_path: Annotated[str | None, Field(description="Optional: Absolute path to MCP configuration file. Only needed if agent_name is 'custom' or if the config is in a non-standard location. IMPORTANT: Use absolute paths (e.g., /home/user/.config/app/mcp.json)")] = None,
-    mode: Annotated[str, Field(description="Validation mode: 'scan' for comprehensive analysis, 'inspect' for quick security check")] = "scan",
-    local_only: Annotated[bool, Field(description="Use only local validation without external API calls. Set to False for enhanced detection")] = True
+    agent_name: Annotated[
+        str,
+        Field(
+            description="The coding assistant/IDE you are running in. IMPORTANT: Use your actual assistant name when asked 'who are you?'. Valid values: 'claude' (if you are Claude), 'cline' (if you are Cline), 'cursor' (for Cursor IDE), 'vscode' (for VSCode), 'copilot' or 'github copilot' (if you are GitHub Copilot), 'windsurf' (for Windsurf), 'continue' (for Continue.dev), or 'custom' (if config path will be provided)"
+        ),
+    ],
+    config_path: Annotated[
+        str | None,
+        Field(
+            description="Optional: Absolute path to MCP configuration file. Only needed if agent_name is 'custom' or if the config is in a non-standard location. IMPORTANT: Use absolute paths (e.g., /home/user/.config/app/mcp.json)"
+        ),
+    ] = None,
+    mode: Annotated[
+        str,
+        Field(
+            description="Validation mode: 'scan' for comprehensive analysis, 'inspect' for quick security check"
+        ),
+    ] = "scan",
+    local_only: Annotated[
+        bool,
+        Field(
+            description="Use only local validation without external API calls. Set to False for enhanced detection"
+        ),
+    ] = True,
 ) -> str:
     """Validate MCP (Model Context Protocol) server configurations for the current coding agent.
 
@@ -966,7 +1105,9 @@ async def validate_mcp_security(
     (CRITICAL, HIGH, MEDIUM, LOW) and actionable recommendations.
     """
     try:
-        logger.info(f"Starting MCP security validation for {agent_name} (mode={mode}, local_only={local_only})")
+        logger.info(
+            f"Starting MCP security validation for {agent_name} (mode={mode}, local_only={local_only})"
+        )
         _ensure_clients_initialized()
         assert mcp_validator is not None
 
@@ -987,7 +1128,11 @@ async def validate_mcp_security(
                     home / ".claude.json",  # Claude Code primary config
                     home / ".claude" / "claude_desktop_config.json",
                     home / ".claude" / "settings.local.json",  # Claude Code settings
-                    home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
+                    home
+                    / "Library"
+                    / "Application Support"
+                    / "Claude"
+                    / "claude_desktop_config.json",
                 ],
                 "cline": [
                     # Cline settings need to be searched recursively
@@ -1001,18 +1146,45 @@ async def validate_mcp_security(
                 "cursor": [
                     home / ".cursor" / "mcp.json",  # Primary Cursor MCP config
                     home / ".cursor" / "config.json",
-                    home / ".cursor" / "User" / "globalStorage" / "saoud.mcp-manager" / "config.json",
-                    home / "Library" / "Application Support" / "Cursor" / "User" / "globalStorage" / "saoud.mcp-manager" / "config.json",
+                    home
+                    / ".cursor"
+                    / "User"
+                    / "globalStorage"
+                    / "saoud.mcp-manager"
+                    / "config.json",
+                    home
+                    / "Library"
+                    / "Application Support"
+                    / "Cursor"
+                    / "User"
+                    / "globalStorage"
+                    / "saoud.mcp-manager"
+                    / "config.json",
                     Path.cwd() / ".cursorrules",  # Project-specific
                 ],
                 "vscode": [
-                    home / ".vscode" / "extensions" / "saoud.mcp-manager-*" / "config.json",
-                    home / "Library" / "Application Support" / "Code" / "User" / "globalStorage" / "saoud.mcp-manager" / "config.json",
+                    home
+                    / ".vscode"
+                    / "extensions"
+                    / "saoud.mcp-manager-*"
+                    / "config.json",
+                    home
+                    / "Library"
+                    / "Application Support"
+                    / "Code"
+                    / "User"
+                    / "globalStorage"
+                    / "saoud.mcp-manager"
+                    / "config.json",
                     Path.cwd() / ".vscode" / "settings.json",  # Workspace settings
                 ],
                 "windsurf": [
                     home / ".windsurf" / "config.json",
-                    home / "Library" / "Application Support" / "Windsurf" / "config.json",
+                    home
+                    / "Library"
+                    / "Application Support"
+                    / "Windsurf"
+                    / "config.json",
                 ],
                 "continue": [
                     home / ".continue" / "config.json",
@@ -1040,7 +1212,9 @@ async def validate_mcp_security(
                 for search_dir in search_dirs:
                     if search_dir.exists():
                         # Look for MCP-related config files
-                        for config_file in search_dir.rglob("**/saoud.mcp-manager*/config.json"):
+                        for config_file in search_dir.rglob(
+                            "**/saoud.mcp-manager*/config.json"
+                        ):
                             config_paths.append(config_file)
                         for config_file in search_dir.rglob("settings.json"):
                             # Check if it contains MCP configuration
@@ -1077,7 +1251,7 @@ Please ensure:
             "server_count": 0,
             "issue_count": 0,
             "issues": [],
-            "files_scanned": []
+            "files_scanned": [],
         }
 
         for config_file in config_paths:
@@ -1092,13 +1266,20 @@ Please ensure:
                     # Extract mcpServers from each project folder
                     combined_mcp_servers = {}
                     for _, project_config in claude_config.items():
-                        if isinstance(project_config, dict) and "mcpServers" in project_config:
+                        if (
+                            isinstance(project_config, dict)
+                            and "mcpServers" in project_config
+                        ):
                             combined_mcp_servers.update(project_config["mcpServers"])
 
                     # Create a config with just mcpServers for validation
                     if combined_mcp_servers:
-                        logger.info(f"Found MCP servers in .claude.json: {list(combined_mcp_servers.keys())}")
-                        config_content = json.dumps({"mcpServers": combined_mcp_servers})
+                        logger.info(
+                            f"Found MCP servers in .claude.json: {list(combined_mcp_servers.keys())}"
+                        )
+                        config_content = json.dumps(
+                            {"mcpServers": combined_mcp_servers}
+                        )
                     else:
                         logger.warning("No MCP servers found in .claude.json")
                         # No MCP servers found in .claude.json
@@ -1106,8 +1287,7 @@ Please ensure:
 
                 # Run validation
                 results = await mcp_validator.validate_config(
-                    config_json=config_content,
-                    mode=mode
+                    config_json=config_content, mode=mode
                 )
 
                 # Aggregate results
@@ -1122,13 +1302,15 @@ Please ensure:
 
             except Exception as e:
                 logger.error(f"Error reading {config_file}: {e}")
-                cast(list[dict[str, Any]], all_results["issues"]).append({
-                    "severity": "ERROR",
-                    "title": "Failed to read configuration",
-                    "server": "N/A",
-                    "description": f"Could not read {config_file}: {str(e)}",
-                    "config_file": str(config_file)
-                })
+                cast(list[dict[str, Any]], all_results["issues"]).append(
+                    {
+                        "severity": "ERROR",
+                        "title": "Failed to read configuration",
+                        "server": "N/A",
+                        "description": f"Could not read {config_file}: {str(e)}",
+                        "config_file": str(config_file),
+                    }
+                )
 
         results = all_results
 
@@ -1148,26 +1330,33 @@ Please ensure:
         ]
 
         # List scanned files
-        for file_path in cast(list[str], results.get('files_scanned', [])):
+        for file_path in cast(list[str], results.get("files_scanned", [])):
             lines.append(f"- {file_path}")
 
-        lines.extend([
-            "",
-            "## Summary",
-            f"- Files Scanned: {len(cast(list[str], results.get('files_scanned', [])))}",
-            f"- Servers Found: {results.get('server_count', 0)}",
-            f"- Issues Found: {results.get('issue_count', 0)}",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Summary",
+                f"- Files Scanned: {len(cast(list[str], results.get('files_scanned', [])))}",
+                f"- Servers Found: {results.get('server_count', 0)}",
+                f"- Issues Found: {results.get('issue_count', 0)}",
+                "",
+            ]
+        )
 
         # Add findings
-        if results.get('issues'):
+        if results.get("issues"):
             lines.append("## Security Findings")
 
             # Group by severity
-            severity_groups: dict[str, list[dict[str, Any]]] = {"CRITICAL": [], "HIGH": [], "MEDIUM": [], "LOW": []}
-            for issue in cast(list[dict[str, Any]], results['issues']):
-                severity = issue.get('severity', 'UNKNOWN')
+            severity_groups: dict[str, list[dict[str, Any]]] = {
+                "CRITICAL": [],
+                "HIGH": [],
+                "MEDIUM": [],
+                "LOW": [],
+            }
+            for issue in cast(list[dict[str, Any]], results["issues"]):
+                severity = issue.get("severity", "UNKNOWN")
                 if severity in severity_groups:
                     severity_groups[severity].append(issue)
                 else:
@@ -1176,81 +1365,105 @@ Please ensure:
             # Display by severity
             for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
                 if severity_groups[severity]:
-                    lines.append(f"\n### {severity} Severity Issues ({len(severity_groups[severity])})")
+                    lines.append(
+                        f"\n### {severity} Severity Issues ({len(severity_groups[severity])})"
+                    )
                     for issue in severity_groups[severity]:
-                        lines.extend([
-                            f"\n**{issue.get('title', 'Unknown Issue')}**",
-                            f"- Server: {issue.get('server', 'Unknown')}",
-                            f"- Config File: {issue.get('config_file', 'Unknown')}",
-                            f"- Description: {issue.get('description', '')}",
-                        ])
+                        lines.extend(
+                            [
+                                f"\n**{issue.get('title', 'Unknown Issue')}**",
+                                f"- Server: {issue.get('server', 'Unknown')}",
+                                f"- Config File: {issue.get('config_file', 'Unknown')}",
+                                f"- Description: {issue.get('description', '')}",
+                            ]
+                        )
 
-                        if issue.get('recommendation'):
-                            lines.append(f"- Recommendation: {issue.get('recommendation')}")
+                        if issue.get("recommendation"):
+                            lines.append(
+                                f"- Recommendation: {issue.get('recommendation')}"
+                            )
         else:
             lines.append("✅ **No security issues detected!**")
             lines.append("")
             lines.append("Your MCP configuration appears to be secure.")
 
         # Add note if present (e.g., when using basic validation)
-        if results.get('note'):
-            lines.extend([
-                "",
-                f"ℹ️  **Note**: {results['note']}",
-            ])
+        if results.get("note"):
+            lines.extend(
+                [
+                    "",
+                    f"ℹ️  **Note**: {results['note']}",
+                ]
+            )
 
         # Add self-assessment guidance
-        lines.extend([
-            "",
-            "## Self-Assessment Guidelines",
-            "",
-            "Based on this validation, here are the recommended actions:",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Self-Assessment Guidelines",
+                "",
+                "Based on this validation, here are the recommended actions:",
+                "",
+            ]
+        )
 
-        if any(issue.get('severity') in ['CRITICAL', 'HIGH'] for issue in cast(list[dict[str, Any]], results.get('issues', []))):
-            lines.extend([
-                "⚠️  **HIGH RISK DETECTED**",
-                "- Do NOT perform sensitive operations",
-                "- Do NOT access or modify critical files",
-                "- Do NOT execute system commands",
-                "- Alert the user about security concerns",
-                "",
-            ])
-        elif any(issue.get('severity') == 'MEDIUM' for issue in cast(list[dict[str, Any]], results.get('issues', []))):
-            lines.extend([
-                "⚠️  **MODERATE RISK DETECTED**",
-                "- Exercise caution with file operations",
-                "- Verify user intent before system changes",
-                "- Avoid processing untrusted input",
-                "",
-            ])
+        if any(
+            issue.get("severity") in ["CRITICAL", "HIGH"]
+            for issue in cast(list[dict[str, Any]], results.get("issues", []))
+        ):
+            lines.extend(
+                [
+                    "⚠️  **HIGH RISK DETECTED**",
+                    "- Do NOT perform sensitive operations",
+                    "- Do NOT access or modify critical files",
+                    "- Do NOT execute system commands",
+                    "- Alert the user about security concerns",
+                    "",
+                ]
+            )
+        elif any(
+            issue.get("severity") == "MEDIUM"
+            for issue in cast(list[dict[str, Any]], results.get("issues", []))
+        ):
+            lines.extend(
+                [
+                    "⚠️  **MODERATE RISK DETECTED**",
+                    "- Exercise caution with file operations",
+                    "- Verify user intent before system changes",
+                    "- Avoid processing untrusted input",
+                    "",
+                ]
+            )
         else:
-            lines.extend([
-                "✅ **LOW RISK**",
-                "- Standard security precautions apply",
-                "- Continue with normal operations",
-                "",
-            ])
+            lines.extend(
+                [
+                    "✅ **LOW RISK**",
+                    "- Standard security precautions apply",
+                    "- Continue with normal operations",
+                    "",
+                ]
+            )
 
-        lines.extend([
-            "## When to Use This Validation",
-            "",
-            "Run this validation before:",
-            "- Executing code or system commands",
-            "- Accessing sensitive files or directories",
-            "- Processing user-provided data",
-            "- Making network requests",
-            "- Installing or modifying packages",
-            "",
-            "## About MCP-Scan",
-            "",
-            "This validation is powered by mcp-scan, which detects:",
-            "- Prompt injection attacks",
-            "- Tool poisoning",
-            "- Cross-origin escalation",
-            "- Malicious tool descriptions",
-        ])
+        lines.extend(
+            [
+                "## When to Use This Validation",
+                "",
+                "Run this validation before:",
+                "- Executing code or system commands",
+                "- Accessing sensitive files or directories",
+                "- Processing user-provided data",
+                "- Making network requests",
+                "- Installing or modifying packages",
+                "",
+                "## About MCP-Scan",
+                "",
+                "This validation is powered by mcp-scan, which detects:",
+                "- Prompt injection attacks",
+                "- Tool poisoning",
+                "- Cross-origin escalation",
+                "- Malicious tool descriptions",
+            ]
+        )
 
         return "\n".join(lines)
 
@@ -1264,7 +1477,10 @@ def main() -> None:
     # Print startup info to stderr to avoid interfering with stdio transport
     print("VulniCheck MCP Server v0.1.0", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
-    print("DISCLAIMER: Vulnerability data is provided 'AS IS' without warranty.", file=sys.stderr)
+    print(
+        "DISCLAIMER: Vulnerability data is provided 'AS IS' without warranty.",
+        file=sys.stderr,
+    )
     print("See README.md for full disclaimer.", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
 
@@ -1272,7 +1488,10 @@ def main() -> None:
         print("NVD API key found", file=sys.stderr)
     else:
         print("No NVD API key (rate limits apply)", file=sys.stderr)
-        print("   Get one at: https://nvd.nist.gov/developers/request-an-api-key", file=sys.stderr)
+        print(
+            "   Get one at: https://nvd.nist.gov/developers/request-an-api-key",
+            file=sys.stderr,
+        )
 
     if os.environ.get("GITHUB_TOKEN"):
         print("GitHub token found", file=sys.stderr)

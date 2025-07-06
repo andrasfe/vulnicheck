@@ -19,10 +19,11 @@ def test_mcp_scan_policy_loading():
     from pathlib import Path
 
     from vulnicheck.mcp_validator import EMBEDDED_POLICY_GR
-    if 'mcp_scan' in sys.modules:
-        del sys.modules['mcp_scan']
-    if 'mcp_scan.verify_api' in sys.modules:
-        del sys.modules['mcp_scan.verify_api']
+
+    if "mcp_scan" in sys.modules:
+        del sys.modules["mcp_scan"]
+    if "mcp_scan.verify_api" in sys.modules:
+        del sys.modules["mcp_scan.verify_api"]
 
     original_cwd = os.getcwd()
     temp_dir = tempfile.mkdtemp()
@@ -84,15 +85,7 @@ async def test_validate_config_json_input():
     assert result["issue_count"] == 0
 
     # Test with valid JSON
-    config = {
-        "mcpServers": {
-            "test": {
-                "command": "echo",
-                "args": ["test"],
-                "env": {}
-            }
-        }
-    }
+    config = {"mcpServers": {"test": {"command": "echo", "args": ["test"], "env": {}}}}
 
     with patch("mcp_scan.MCPScanner") as mock_scanner:
         mock_instance = AsyncMock()
@@ -116,15 +109,7 @@ async def test_validate_config_policy_file_error():
     """Test handling of policy.gr file not found error."""
     validator = MCPValidator(local_only=True)
 
-    config = {
-        "mcpServers": {
-            "test": {
-                "command": "test",
-                "args": [],
-                "env": {}
-            }
-        }
-    }
+    config = {"mcpServers": {"test": {"command": "test", "args": [], "env": {}}}}
 
     with patch("mcp_scan.MCPScanner") as mock_scanner:
         mock_instance = AsyncMock()
@@ -155,15 +140,14 @@ async def test_validate_config_scan_mode(mock_mcp_scanner):
             "prompt_injection_risk": True,
             "suspicious_tools": [
                 {"name": "dangerous_tool", "reason": "Suspicious behavior detected"}
-            ]
+            ],
         }
     }
 
     validator = MCPValidator(local_only=True)
     config = {"mcpServers": {"test-server": {"command": "test", "args": []}}}
     results = await validator.validate_config(
-        config_json=json.dumps(config),
-        mode="scan"
+        config_json=json.dumps(config), mode="scan"
     )
 
     assert results["server_count"] == 1
@@ -171,9 +155,7 @@ async def test_validate_config_scan_mode(mock_mcp_scanner):
     assert len(results["issues"]) == 2
 
     # Check that high severity issue was created for prompt injection
-    prompt_injection_issues = [
-        i for i in results["issues"] if i["severity"] == "HIGH"
-    ]
+    prompt_injection_issues = [i for i in results["issues"] if i["severity"] == "HIGH"]
     assert len(prompt_injection_issues) == 1
     assert "prompt injection" in prompt_injection_issues[0]["title"].lower()
 
@@ -184,15 +166,14 @@ async def test_validate_config_inspect_mode(mock_mcp_scanner):
     mock_class, mock_instance = mock_mcp_scanner
 
     # Mock inspect results
-    mock_instance.inspect.return_value = {
-        "servers": ["server1", "server2"]
-    }
+    mock_instance.inspect.return_value = {"servers": ["server1", "server2"]}
 
     validator = MCPValidator(local_only=False)
-    config = {"mcpServers": {"server1": {"command": "cmd1"}, "server2": {"command": "cmd2"}}}
+    config = {
+        "mcpServers": {"server1": {"command": "cmd1"}, "server2": {"command": "cmd2"}}
+    }
     results = await validator.validate_config(
-        config_json=json.dumps(config),
-        mode="inspect"
+        config_json=json.dumps(config), mode="inspect"
     )
 
     assert results["server_count"] == 2
@@ -206,17 +187,12 @@ async def test_validate_config_malicious_server(mock_mcp_scanner):
     mock_class, mock_instance = mock_mcp_scanner
 
     # Mock scan results with malicious server
-    mock_instance.scan.return_value = {
-        "evil-server": {
-            "malicious": True
-        }
-    }
+    mock_instance.scan.return_value = {"evil-server": {"malicious": True}}
 
     validator = MCPValidator()
     config = {"mcpServers": {"evil-server": {"command": "evil", "args": []}}}
     results = await validator.validate_config(
-        config_json=json.dumps(config),
-        mode="scan"
+        config_json=json.dumps(config), mode="scan"
     )
 
     assert results["issue_count"] == 1
@@ -248,8 +224,7 @@ async def test_validate_config_error_handling(mock_mcp_scanner):
     validator = MCPValidator()
     config = {"mcpServers": {"evil-server": {"command": "evil", "args": []}}}
     results = await validator.validate_config(
-        config_json=json.dumps(config),
-        mode="scan"
+        config_json=json.dumps(config), mode="scan"
     )
 
     assert "error" in results
@@ -264,9 +239,7 @@ def test_format_results_json_string():
     """Test formatting of JSON string results."""
     validator = MCPValidator()
 
-    json_results = json.dumps({
-        "servers": ["server1", "server2"]
-    })
+    json_results = json.dumps({"servers": ["server1", "server2"]})
 
     formatted = validator._format_results(json_results)
 
@@ -316,8 +289,7 @@ async def test_validate_config_invalid_mode(mock_mcp_scanner):
     validator = MCPValidator()
     config = {"mcpServers": {"test": {"command": "test"}}}
     results = await validator.validate_config(
-        config_json=json.dumps(config),
-        mode="invalid"
+        config_json=json.dumps(config), mode="invalid"
     )
 
     # Should return an error when invalid mode is used
@@ -336,21 +308,21 @@ def test_format_results_complex_scan():
         "server1": {
             "malicious": True,
             "prompt_injection_risk": True,
-            "suspicious_tools": [
-                {"name": "tool1", "reason": "Reason 1"}
-            ]
+            "suspicious_tools": [{"name": "tool1", "reason": "Reason 1"}],
         },
         "server2": {
             "malicious": False,
             "prompt_injection_risk": False,
-            "suspicious_tools": []
-        }
+            "suspicious_tools": [],
+        },
     }
 
     formatted = validator._format_results(results)
 
     assert formatted["server_count"] == 2
-    assert formatted["issue_count"] == 3  # 1 malicious + 1 prompt injection + 1 suspicious tool
+    assert (
+        formatted["issue_count"] == 3
+    )  # 1 malicious + 1 prompt injection + 1 suspicious tool
 
     # Check severity distribution
     severities = [issue["severity"] for issue in formatted["issues"]]
@@ -370,8 +342,7 @@ async def test_validate_config_with_mcp_scanner_init_error(mock_mcp_scanner):
     validator = MCPValidator()
     config = {"mcpServers": {"evil-server": {"command": "evil", "args": []}}}
     results = await validator.validate_config(
-        config_json=json.dumps(config),
-        mode="scan"
+        config_json=json.dumps(config), mode="scan"
     )
 
     assert "error" in results
@@ -400,10 +371,7 @@ def test_format_results_with_nested_server_count():
     """Test formatting when results contain a servers key."""
     validator = MCPValidator()
 
-    results = {
-        "servers": ["s1", "s2", "s3"],
-        "server1": {"malicious": False}
-    }
+    results = {"servers": ["s1", "s2", "s3"], "server1": {"malicious": False}}
 
     formatted = validator._format_results(results)
 

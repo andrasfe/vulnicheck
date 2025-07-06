@@ -15,6 +15,10 @@ install: ## Install the package in development mode
 install-dev: ## Install development dependencies
 	uv pip install -e ".[dev]"
 
+.PHONY: install-local
+install-local: ## Set up local development environment with venv and Claude integration
+	@bash run-local.sh
+
 .PHONY: test
 test: ## Run all tests (excluding deprecated cache tests)
 	pytest -v tests/test_nvd_client.py tests/test_osv_client.py tests/test_scanner.py tests/integration/test_nvd_integration.py tests/integration/test_osv_integration.py

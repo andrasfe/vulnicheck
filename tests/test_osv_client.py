@@ -39,7 +39,7 @@ class TestOSVClient:
             mock_client_class.return_value = mock_client
             client = OSVClient(timeout=10)
             yield client
-            if hasattr(client.client, 'close'):
+            if hasattr(client.client, "close"):
                 client.client.close()
 
     @pytest.fixture
@@ -105,21 +105,25 @@ class TestOSVClient:
             )
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Complex async mocking - functionality tested via sync methods")
+    @pytest.mark.skip(
+        reason="Complex async mocking - functionality tested via sync methods"
+    )
     async def test_query_package_async(self, client):
         mock_response = Mock()
-        mock_response.json = Mock(return_value={
-            "vulns": [
-                {
-                    "id": "GHSA-async",
-                    "summary": "Async test",
-                    "aliases": [],
-                    "affected": [],
-                    "severity": [],
-                    "references": [],
-                }
-            ]
-        })
+        mock_response.json = Mock(
+            return_value={
+                "vulns": [
+                    {
+                        "id": "GHSA-async",
+                        "summary": "Async test",
+                        "aliases": [],
+                        "affected": [],
+                        "severity": [],
+                        "references": [],
+                    }
+                ]
+            }
+        )
         mock_response.raise_for_status = Mock()
 
         with patch("vulnicheck.osv_client.httpx.AsyncClient") as mock_async_client:

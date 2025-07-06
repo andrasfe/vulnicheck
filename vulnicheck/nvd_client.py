@@ -11,9 +11,7 @@ class CVSSData(BaseModel):
     version: str
     vectorString: str
     baseScore: float
-    baseSeverity: str | None = (
-        None  # Optional because CVSS v2 doesn't have this field
-    )
+    baseSeverity: str | None = None  # Optional because CVSS v2 doesn't have this field
     exploitabilityScore: float | None = None
     impactScore: float | None = None
 

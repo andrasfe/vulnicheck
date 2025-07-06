@@ -19,6 +19,7 @@ This software incorporates or references data from publicly available sources, i
 - **Dependency scanning** for `requirements.txt` and `pyproject.toml` files
 - **Python import scanning** - automatically discovers dependencies from Python source files when no requirements file exists
 - **Secrets detection** - scans files and directories for exposed API keys, passwords, and credentials using detect-secrets
+- **MCP security passthrough** - validates and monitors cross-server MCP operations with built-in security constraints
 - **Detailed CVE information** including CVSS scores and severity ratings
 - **CWE (Common Weakness Enumeration) mapping** for better understanding of vulnerability types
 - **FastMCP integration** for simplified Model Context Protocol implementation
@@ -32,7 +33,7 @@ This software incorporates or references data from publicly available sources, i
 ```bash
 git clone https://github.com/andrasfe/vulnicheck.git
 cd vulnicheck
-./run-local.sh
+make install-local
 ```
 
 This script will:
@@ -83,8 +84,8 @@ Add to your MCP settings:
 
 ## Installation Options
 
-### Option 1: Quick Start with Script (Recommended)
-Use the `./run-local.sh` script as shown above. It handles everything automatically.
+### Option 1: Quick Start with Make (Recommended)
+Use `make install-local` as shown above. It handles everything automatically.
 
 ### Option 2: Manual Installation
 ```bash
@@ -124,7 +125,7 @@ Once the service is running and your IDE is configured, you can interact with Vu
 ```bash
 # Update the installation
 git pull
-./run-local.sh
+make install-local
 
 # Test the server manually
 python -m vulnicheck.server
@@ -270,6 +271,47 @@ Key capabilities:
 
 This self-validation capability enables LLMs to make informed decisions about whether to proceed with sensitive operations based on their current security configuration.
 
+### 6. mcp_passthrough_tool - EXPERIMENTAL (Still WIP)
+
+Execute MCP tool calls through a security passthrough layer that validates and monitors cross-server operations.
+
+**Parameters:**
+- `server_name` (required): Name of the target MCP server
+- `tool_name` (required): Name of the tool to call on the MCP server
+- `parameters` (optional): Parameters to pass to the tool (default: empty dict)
+- `security_context` (optional): Additional security constraints for this call
+
+**Example:**
+```json
+{
+  "tool": "mcp_passthrough_tool",
+  "server_name": "example-server",
+  "tool_name": "read_file",
+  "parameters": {"file_path": "/home/user/document.txt"},
+  "security_context": "Reading user document for analysis"
+}
+```
+
+**Security Features:**
+- Validates target server against a blocklist (blocks: system, admin, root, sudo)
+- Detects dangerous file paths: /etc/, /root/, ~/.ssh/, .env, passwords, secrets, keys
+- Blocks dangerous commands: sudo, rm -rf, chmod 777, curl|bash patterns
+- Injects security prompts for every call to guide safe execution
+- Returns structured responses with security context
+
+**Response Format:**
+```json
+{
+  "status": "success|blocked|error|mock",
+  "result": {},  // Only for successful calls
+  "reason": "...",  // Only for blocked calls
+  "error": "...",  // Only for errors
+  "security_prompt": "..."  // Always included
+}
+```
+
+This tool acts as a security layer between LLMs and MCP servers, preventing potentially harmful operations while maintaining transparency about security constraints.
+
 ## Example Output
 
 ### Package Vulnerability Check
@@ -341,12 +383,28 @@ CACHE_TTL=1800
 ### Local Development Setup
 
 ```bash
-# Create virtual environment
+# Quick setup with all dependencies
+make install-local
+
+# Or manual setup for development
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install in development mode
 pip install -e ".[dev]"
+```
+
+### Available Make Commands
+
+```bash
+make help           # Show all available commands
+make install        # Install package in development mode
+make install-dev    # Install with development dependencies
+make install-local  # Set up local environment with Claude integration
+make test          # Run all tests
+make test-unit     # Run unit tests only
+make test-coverage # Run tests with coverage report
+make lint          # Run linting checks (ruff + mypy)
+make format        # Format code with ruff
+make clean         # Clean build artifacts
 ```
 
 ### Running Tests
@@ -381,6 +439,11 @@ make format
 - Built with FastMCP for secure and efficient MCP protocol handling
 - No sensitive data is stored or transmitted
 - All external API calls use HTTPS
+- MCP passthrough tool validates all cross-server operations:
+  - Blocks access to system-level servers (system, admin, root, sudo)
+  - Prevents access to sensitive file paths (/etc/, /root/, ~/.ssh/, .env, passwords, secrets)
+  - Blocks dangerous commands (sudo, rm -rf, chmod 777, curl|bash)
+  - Injects security prompts to guide safe LLM behavior
 
 ## Troubleshooting
 

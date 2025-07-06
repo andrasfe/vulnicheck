@@ -32,8 +32,9 @@ class TestDependencyScanner:
 
     @pytest.mark.asyncio
     async def test_scan_file_unsupported_type(self, scanner):
-        with tempfile.NamedTemporaryFile(suffix=".json") as f, pytest.raises(
-            ValueError, match="Unsupported file"
+        with (
+            tempfile.NamedTemporaryFile(suffix=".json") as f,
+            pytest.raises(ValueError, match="Unsupported file"),
         ):
             await scanner.scan_file(f.name)
 

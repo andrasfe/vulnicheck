@@ -169,8 +169,10 @@ class TestCVEDetail:
 class TestNVDClient:
     @pytest.fixture
     def client(self):
-        with patch("vulnicheck.nvd_client.httpx.Client") as mock_client_class, \
-             patch("vulnicheck.nvd_client.get_nvd_rate_limiter") as mock_rate_limiter:
+        with (
+            patch("vulnicheck.nvd_client.httpx.Client") as mock_client_class,
+            patch("vulnicheck.nvd_client.get_nvd_rate_limiter") as mock_rate_limiter,
+        ):
             mock_client = Mock()
             mock_client_class.return_value = mock_client
             mock_limiter = Mock()
@@ -178,13 +180,15 @@ class TestNVDClient:
             mock_rate_limiter.return_value = mock_limiter
             client = NVDClient(timeout=10)
             yield client
-            if hasattr(client.client, 'close'):
+            if hasattr(client.client, "close"):
                 client.client.close()
 
     @pytest.fixture
     def client_with_api_key(self):
-        with patch("vulnicheck.nvd_client.httpx.Client") as mock_client_class, \
-             patch("vulnicheck.nvd_client.get_nvd_rate_limiter") as mock_rate_limiter:
+        with (
+            patch("vulnicheck.nvd_client.httpx.Client") as mock_client_class,
+            patch("vulnicheck.nvd_client.get_nvd_rate_limiter") as mock_rate_limiter,
+        ):
             mock_client = Mock()
             mock_client_class.return_value = mock_client
             mock_limiter = Mock()
@@ -192,7 +196,7 @@ class TestNVDClient:
             mock_rate_limiter.return_value = mock_limiter
             client = NVDClient(api_key="test-api-key", timeout=10)
             yield client
-            if hasattr(client.client, 'close'):
+            if hasattr(client.client, "close"):
                 client.client.close()
 
     @pytest.fixture
