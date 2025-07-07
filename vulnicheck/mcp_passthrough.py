@@ -1,15 +1,21 @@
 """
-MCP Passthrough Tool - Security layer for MCP server interactions.
+Unified MCP Passthrough Tool with real MCP client integration.
 
-This module provides a passthrough mechanism that intercepts MCP server calls
-and injects security prompts to prevent harmful operations.
+This module provides a single passthrough mechanism that intercepts MCP server calls,
+adds security prompts, and can optionally connect to real MCP servers.
 """
 
+import asyncio
 import json
 import logging
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from .agent_detector import detect_agent
+from .mcp_client import MCPClient, MCPConnection
+from .mcp_config_cache import MCPConfigCache
 
 logger = logging.getLogger(__name__)
 
@@ -28,22 +34,117 @@ class MCPCall(BaseModel):
     )
 
 
+class MCPConnectionPool:
+    """Manages a pool of MCP server connections."""
+
+    def __init__(self, config_cache: MCPConfigCache, mcp_client: MCPClient):
+        self.config_cache = config_cache
+        self.mcp_client = mcp_client
+        self._connections: dict[tuple[str, str], MCPConnection] = {}
+        self._lock = asyncio.Lock()
+
+    async def get_connection(self, agent_name: str, server_name: str) -> MCPConnection:
+        """Get or create a connection to an MCP server."""
+        key = (agent_name, server_name)
+
+        async with self._lock:
+            # Check if we have an active connection
+            if key in self._connections:
+                connection = self._connections[key]
+                # TODO: Add health check here
+                return connection
+
+            # Get server configuration
+            config = await self.config_cache.get_server_config(agent_name, server_name)
+            if not config:
+                raise ValueError(
+                    f"Server '{server_name}' not found in {agent_name} configuration"
+                )
+
+            # Create new connection
+            try:
+                connection = await self.mcp_client.connect(server_name, config)
+                self._connections[key] = connection
+                return connection
+            except Exception as e:
+                logger.error(f"Failed to connect to {server_name}: {e}")
+                raise
+
+    async def close_connection(self, agent_name: str, server_name: str) -> None:
+        """Close a specific connection."""
+        key = (agent_name, server_name)
+        async with self._lock:
+            if key in self._connections:
+                await self._connections[key].close()
+                del self._connections[key]
+
+    async def close_all(self) -> None:
+        """Close all connections."""
+        async with self._lock:
+            for connection in self._connections.values():
+                try:
+                    await connection.close()
+                except Exception as e:
+                    logger.error(f"Error closing connection: {e}")
+            self._connections.clear()
+
+
 class MCPPassthrough:
     """
-    Passthrough handler for MCP server calls with security enforcement.
+    Unified passthrough handler for MCP server calls with security enforcement.
 
-    This class intercepts MCP server tool calls and adds security prompts
-    to prevent potentially harmful operations.
+    This class intercepts MCP server tool calls, adds security prompts,
+    and can optionally forward calls to real MCP servers.
     """
 
-    def __init__(self, mcp_client: Any = None) -> None:
+    def __init__(
+        self, agent_name: str | None = None, enable_real_connections: bool | None = None
+    ):
         """
         Initialize the passthrough handler.
 
         Args:
-            mcp_client: Optional MCP client instance for making actual calls
+            agent_name: Name of the agent (claude, cursor, etc.). If not provided,
+                       will attempt to auto-detect using shared detector.
+            enable_real_connections: Whether to enable real MCP connections.
+                                   If None, will check MCP_PASSTHROUGH_ENHANCED env var.
         """
-        self.mcp_client = mcp_client
+        # Detect agent using shared detector
+        self.agent_name = detect_agent(agent_name)
+        logger.info(f"Initialized MCP passthrough for agent: {self.agent_name}")
+
+        # Determine if we should enable real connections
+        if enable_real_connections is None:
+            enable_real_connections = (
+                os.environ.get("MCP_PASSTHROUGH_ENHANCED", "true").lower() == "true"
+            )
+
+        self.enable_real_connections = enable_real_connections
+
+        # Declare attributes with proper types
+        self.config_cache: MCPConfigCache | None = None
+        self.mcp_client: MCPClient | None = None
+        self.connection_pool: MCPConnectionPool | None = None
+
+        # Initialize MCP components if real connections are enabled
+        if self.enable_real_connections:
+            try:
+                self.config_cache = MCPConfigCache()
+                self.mcp_client = MCPClient()
+                self.connection_pool = MCPConnectionPool(
+                    self.config_cache, self.mcp_client
+                )
+                logger.info("Real MCP connections enabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize MCP components: {e}")
+                logger.warning("Falling back to mock mode")
+                self.enable_real_connections = False
+                self.config_cache = None
+                self.mcp_client = None
+                self.connection_pool = None
+        else:
+            logger.info("Running in mock mode (no real MCP connections)")
+
         self.security_prompt_template = """
 SECURITY NOTICE: You are about to execute an MCP tool call with the following details:
 - Server: {server_name}
@@ -123,11 +224,9 @@ Please review this operation carefully before proceeding.
                     "security_prompt": security_prompt,
                 }
 
-        # If we have an MCP client, make the actual call
-        if self.mcp_client:
+        # If we have real connections enabled, make the actual call
+        if self.enable_real_connections and self.connection_pool:
             try:
-                # This is a placeholder - actual implementation would depend on
-                # the MCP client library being used
                 result = await self._forward_to_mcp(server_name, tool_name, parameters)
                 return {
                     "status": "success",
@@ -142,10 +241,10 @@ Please review this operation carefully before proceeding.
                     "security_prompt": security_prompt,
                 }
         else:
-            # Return mock response if no client configured
+            # Return mock response if no real connections
             return {
                 "status": "mock",
-                "message": "No MCP client configured - returning mock response",
+                "message": "Running in mock mode - no real MCP connections",
                 "requested_call": {
                     "server": server_name,
                     "tool": tool_name,
@@ -160,14 +259,26 @@ Please review this operation carefully before proceeding.
         """
         Forward the call to the actual MCP server.
 
-        This is a placeholder that would be implemented based on the
-        actual MCP client library being used.
+        This implementation actually connects to and calls the MCP server.
         """
-        # Placeholder implementation
-        raise NotImplementedError(
-            "MCP client forwarding not implemented. "
-            "This would depend on the specific MCP client library."
-        )
+        if not self.connection_pool:
+            raise RuntimeError("Connection pool not initialized")
+
+        try:
+            # Get or create connection
+            connection = await self.connection_pool.get_connection(
+                self.agent_name, server_name
+            )
+
+            # Make the actual tool call
+            result = await connection.call_tool(tool_name, parameters)
+
+            logger.info(f"Successfully called {server_name}.{tool_name}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to forward MCP call: {e}")
+            raise
 
     def validate_server_access(self, server_name: str) -> bool:
         """
@@ -193,25 +304,74 @@ Please review this operation carefully before proceeding.
 
         return True
 
+    async def get_available_servers(self) -> dict[str, list[str]]:
+        """Get list of available servers and their tools."""
+        if not self.enable_real_connections or not self.config_cache:
+            return {}
+
+        configs = await self.config_cache.get_server_configs(self.agent_name)
+
+        available: dict[str, list[str]] = {}
+        for server_name in configs:
+            try:
+                # Try to get connection and discover tools
+                if self.connection_pool is None:
+                    available[server_name] = ["<connection pool not initialized>"]
+                    continue
+                connection = await self.connection_pool.get_connection(
+                    self.agent_name, server_name
+                )
+                tools = await connection.discover_tools()
+                available[server_name] = list(tools.keys())
+            except Exception as e:
+                logger.warning(f"Could not connect to {server_name}: {e}")
+                available[server_name] = ["<connection failed>"]
+
+        return available
+
+    async def close(self) -> None:
+        """Clean up resources."""
+        if self.connection_pool:
+            await self.connection_pool.close_all()
+        if self.mcp_client:
+            await self.mcp_client.close_all()
+
+
+# Global instance for reuse
+_global_passthrough: MCPPassthrough | None = None
+
+
+async def get_passthrough(agent_name: str | None = None) -> MCPPassthrough:
+    """Get or create the global passthrough instance."""
+    global _global_passthrough
+
+    if _global_passthrough is None:
+        _global_passthrough = MCPPassthrough(agent_name)
+
+    return _global_passthrough
+
 
 # FastMCP tool function for the passthrough
-async def mcp_passthrough(
+async def mcp_passthrough_tool(
     server_name: str,
     tool_name: str,
     parameters: dict[str, Any] | None = None,
     security_context: str | None = None,
+    agent_name: str | None = None,
 ) -> str:
     """
     Execute an MCP tool call through the security passthrough.
 
     This tool acts as a security layer between the LLM and MCP servers,
-    intercepting calls and adding security constraints.
+    intercepting calls and adding security constraints. It can optionally
+    forward calls to real MCP servers when MCP_PASSTHROUGH_ENHANCED=true.
 
     Args:
         server_name: Name of the target MCP server
         tool_name: Name of the tool to call on the MCP server
         parameters: Parameters to pass to the tool (default: empty dict)
         security_context: Additional security constraints for this call
+        agent_name: Override the detected agent name
 
     Returns:
         JSON string with the result or security rejection
@@ -219,7 +379,8 @@ async def mcp_passthrough(
     if parameters is None:
         parameters = {}
 
-    passthrough = MCPPassthrough()
+    # Get or create passthrough
+    passthrough = await get_passthrough(agent_name)
 
     # Validate server access
     if not passthrough.validate_server_access(server_name):

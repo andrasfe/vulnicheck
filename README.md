@@ -19,7 +19,7 @@ This software incorporates or references data from publicly available sources, i
 - **Dependency scanning** for `requirements.txt` and `pyproject.toml` files
 - **Python import scanning** - automatically discovers dependencies from Python source files when no requirements file exists
 - **Secrets detection** - scans files and directories for exposed API keys, passwords, and credentials using detect-secrets
-- **MCP security passthrough** - validates and monitors cross-server MCP operations with built-in security constraints
+- **MCP security passthrough** - validates and monitors cross-server MCP operations with built-in security constraints, enabling secure integration with other MCP servers
 - **Detailed CVE information** including CVSS scores and severity ratings
 - **CWE (Common Weakness Enumeration) mapping** for better understanding of vulnerability types
 - **FastMCP integration** for simplified Model Context Protocol implementation
@@ -271,9 +271,9 @@ Key capabilities:
 
 This self-validation capability enables LLMs to make informed decisions about whether to proceed with sensitive operations based on their current security configuration.
 
-### 6. mcp_passthrough_tool - EXPERIMENTAL (Still WIP)
+### 6. mcp_passthrough_tool
 
-Execute MCP tool calls through a security passthrough layer that validates and monitors cross-server operations.
+Execute MCP tool calls through a security passthrough layer that validates and monitors cross-server operations. This tool enables secure communication between different MCP servers while enforcing security constraints.
 
 **Parameters:**
 - `server_name` (required): Name of the target MCP server
@@ -285,10 +285,9 @@ Execute MCP tool calls through a security passthrough layer that validates and m
 ```json
 {
   "tool": "mcp_passthrough_tool",
-  "server_name": "example-server",
-  "tool_name": "read_file",
-  "parameters": {"file_path": "/home/user/document.txt"},
-  "security_context": "Reading user document for analysis"
+  "server_name": "zen",
+  "tool_name": "listmodels",
+  "parameters": {}
 }
 ```
 
@@ -296,13 +295,21 @@ Execute MCP tool calls through a security passthrough layer that validates and m
 - Validates target server against a blocklist (blocks: system, admin, root, sudo)
 - Detects dangerous file paths: /etc/, /root/, ~/.ssh/, .env, passwords, secrets, keys
 - Blocks dangerous commands: sudo, rm -rf, chmod 777, curl|bash patterns
+- Filters dangerous words in parameters to prevent security bypasses
 - Injects security prompts for every call to guide safe execution
 - Returns structured responses with security context
+
+**MCP Protocol Support:**
+- Implements full MCP protocol with stdio transport
+- Sends required `notifications/initialized` after initialization
+- Handles large responses with 1MB buffer limit
+- Supports connection pooling for efficiency
+- Compatible with standard MCP servers (FastMCP, Anthropic MCP SDK)
 
 **Response Format:**
 ```json
 {
-  "status": "success|blocked|error|mock",
+  "status": "success|blocked|error",
   "result": {},  // Only for successful calls
   "reason": "...",  // Only for blocked calls
   "error": "...",  // Only for errors
@@ -310,7 +317,23 @@ Execute MCP tool calls through a security passthrough layer that validates and m
 }
 ```
 
-This tool acts as a security layer between LLMs and MCP servers, preventing potentially harmful operations while maintaining transparency about security constraints.
+**Integration Example with Zen Server:**
+```json
+{
+  "tool": "mcp_passthrough_tool",
+  "server_name": "zen",
+  "tool_name": "analyze",
+  "parameters": {
+    "step": "Analyze project architecture",
+    "step_number": 1,
+    "total_steps": 3,
+    "model": "o3-mini",
+    "relevant_files": ["/path/to/project"]
+  }
+}
+```
+
+This tool acts as a security layer between LLMs and MCP servers, preventing potentially harmful operations while maintaining transparency about security constraints. It has been tested successfully with various MCP servers including the Zen thinking server.
 
 ## Example Output
 

@@ -231,6 +231,41 @@ class MCPValidator:
 
         return config_paths
 
+    def _get_claude_code_servers(self) -> dict[str, Any]:
+        """Get MCP servers configured in Claude Code.
+
+        Returns:
+            Dictionary of server configurations
+        """
+        import subprocess
+
+        servers = {}
+        try:
+            # Use claude mcp list to get configured servers
+            result = subprocess.run(
+                ["claude", "mcp", "list"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            if result.returncode == 0:
+                # Parse the output
+                for line in result.stdout.strip().split("\n"):
+                    if ": " in line:
+                        name, command = line.split(": ", 1)
+                        servers[name.strip()] = {
+                            "command": command.strip(),
+                            "args": [],
+                        }
+                logger.info(f"Found {len(servers)} Claude Code MCP servers")
+            else:
+                logger.warning(f"Failed to get Claude Code servers: {result.stderr}")
+        except Exception as e:
+            logger.warning(f"Error getting Claude Code servers: {e}")
+
+        return servers
+
     def _format_results(self, raw_results: Any) -> dict[str, Any]:
         """Format scan results for vulnicheck tool output.
 

@@ -1,11 +1,12 @@
 """Unit tests for MCP passthrough functionality."""
 
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from vulnicheck.mcp_passthrough import MCPPassthrough, mcp_passthrough
+from vulnicheck.mcp_passthrough import MCPPassthrough, mcp_passthrough_tool
 
 
 class TestMCPPassthrough:
@@ -13,15 +14,27 @@ class TestMCPPassthrough:
 
     def test_init(self):
         """Test passthrough initialization."""
-        # Without client
+        # Without explicit agent name (auto-detect)
         passthrough = MCPPassthrough()
-        assert passthrough.mcp_client is None
+        assert passthrough.agent_name in [
+            "claude",
+            "cursor",
+            "vscode",
+            "cline",
+            "copilot",
+            "windsurf",
+            "continue",
+        ]
         assert "SECURITY NOTICE" in passthrough.security_prompt_template
 
-        # With client
-        mock_client = MagicMock()
-        passthrough = MCPPassthrough(mock_client)
-        assert passthrough.mcp_client == mock_client
+        # With explicit agent name
+        passthrough = MCPPassthrough(agent_name="cursor")
+        assert passthrough.agent_name == "cursor"
+
+        # Mock mode by default
+        passthrough = MCPPassthrough(enable_real_connections=False)
+        assert passthrough.mcp_client is None
+        assert passthrough.connection_pool is None
 
     def test_validate_server_access(self):
         """Test server access validation."""
@@ -46,7 +59,7 @@ class TestMCPPassthrough:
     @pytest.mark.asyncio
     async def test_execute_with_security_safe_operation(self):
         """Test execution of safe operations."""
-        passthrough = MCPPassthrough()
+        passthrough = MCPPassthrough(enable_real_connections=False)
 
         result = await passthrough.execute_with_security(
             server_name="example-server",
@@ -67,7 +80,7 @@ class TestMCPPassthrough:
     @pytest.mark.asyncio
     async def test_execute_with_security_dangerous_file_paths(self):
         """Test blocking of dangerous file paths."""
-        passthrough = MCPPassthrough()
+        passthrough = MCPPassthrough(enable_real_connections=False)
 
         # Test various dangerous paths
         dangerous_paths = [
@@ -118,7 +131,7 @@ class TestMCPPassthrough:
     @pytest.mark.asyncio
     async def test_execute_with_security_dangerous_commands(self):
         """Test blocking of dangerous commands."""
-        passthrough = MCPPassthrough()
+        passthrough = MCPPassthrough(enable_real_connections=False)
 
         # Test various dangerous commands
         dangerous_commands = [
@@ -207,22 +220,31 @@ class TestMCPPassthrough:
 
     @pytest.mark.asyncio
     async def test_forward_to_mcp_not_implemented(self):
-        """Test that _forward_to_mcp raises NotImplementedError."""
-        passthrough = MCPPassthrough()
+        """Test that _forward_to_mcp raises RuntimeError without connection pool."""
+        passthrough = MCPPassthrough(enable_real_connections=False)
 
-        with pytest.raises(NotImplementedError) as exc_info:
+        with pytest.raises(RuntimeError) as exc_info:
             await passthrough._forward_to_mcp("server", "tool", {})
 
-        assert "MCP client forwarding not implemented" in str(exc_info.value)
+        assert "Connection pool not initialized" in str(exc_info.value)
 
 
 class TestMCPPassthroughFunction:
-    """Test cases for the mcp_passthrough function."""
+    """Test cases for the mcp_passthrough_tool function."""
+
+    def setup_method(self):
+        """Set up test environment to use mock mode."""
+        os.environ["MCP_PASSTHROUGH_ENHANCED"] = "false"
+
+    def teardown_method(self):
+        """Clean up environment."""
+        if "MCP_PASSTHROUGH_ENHANCED" in os.environ:
+            del os.environ["MCP_PASSTHROUGH_ENHANCED"]
 
     @pytest.mark.asyncio
     async def test_mcp_passthrough_blocked_server(self):
         """Test passthrough function with blocked server."""
-        result_json = await mcp_passthrough(
+        result_json = await mcp_passthrough_tool(
             server_name="root", tool_name="any_tool", parameters={"key": "value"}
         )
 
@@ -234,7 +256,7 @@ class TestMCPPassthroughFunction:
     @pytest.mark.asyncio
     async def test_mcp_passthrough_safe_operation(self):
         """Test passthrough function with safe operation."""
-        result_json = await mcp_passthrough(
+        result_json = await mcp_passthrough_tool(
             server_name="data-server",
             tool_name="query",
             parameters={"table": "users"},
@@ -249,7 +271,7 @@ class TestMCPPassthroughFunction:
     @pytest.mark.asyncio
     async def test_mcp_passthrough_none_parameters(self):
         """Test passthrough function with None parameters."""
-        result_json = await mcp_passthrough(
+        result_json = await mcp_passthrough_tool(
             server_name="test-server", tool_name="test_tool", parameters=None
         )
 
@@ -261,7 +283,7 @@ class TestMCPPassthroughFunction:
     async def test_mcp_passthrough_case_sensitivity(self):
         """Test that dangerous patterns are case-insensitive."""
         # Test with uppercase dangerous path
-        result_json = await mcp_passthrough(
+        result_json = await mcp_passthrough_tool(
             server_name="file-server",
             tool_name="read",
             parameters={"file_path": "/ETC/PASSWD"},
@@ -271,7 +293,7 @@ class TestMCPPassthroughFunction:
         assert result["status"] == "blocked"
 
         # Test with mixed case dangerous command
-        result_json = await mcp_passthrough(
+        result_json = await mcp_passthrough_tool(
             server_name="shell-server",
             tool_name="exec",
             parameters={"command": "SUDO rm -rf /"},
@@ -283,7 +305,7 @@ class TestMCPPassthroughFunction:
     @pytest.mark.asyncio
     async def test_security_prompt_content(self):
         """Test that security prompts contain expected content."""
-        result_json = await mcp_passthrough(
+        result_json = await mcp_passthrough_tool(
             server_name="test-server",
             tool_name="test_tool",
             parameters={"key": "value"},
@@ -312,7 +334,7 @@ class TestMCPPassthroughFunction:
             "filters": ["*.py", "*.js"],
         }
 
-        result_json = await mcp_passthrough(
+        result_json = await mcp_passthrough_tool(
             server_name="file-server", tool_name="bulk_read", parameters=complex_params
         )
 
@@ -331,7 +353,7 @@ class TestMCPPassthroughFunction:
             }
         }
 
-        result_json = await mcp_passthrough(
+        result_json = await mcp_passthrough_tool(
             server_name="config-server", tool_name="update", parameters=nested_params
         )
 

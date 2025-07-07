@@ -11,7 +11,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from .github_client import GitHubClient
-from .mcp_passthrough import mcp_passthrough
+from .mcp_passthrough import mcp_passthrough_tool as unified_mcp_passthrough
 from .mcp_validator import MCPValidator
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
@@ -973,7 +973,7 @@ async def mcp_passthrough_tool(
         str, Field(description="Name of the tool to call on the MCP server")
     ],
     parameters: Annotated[
-        dict[str, Any] | None,
+        dict[str, Any] | str | None,
         Field(
             description="Parameters to pass to the tool (default: empty dict)",
             default=None,
@@ -1016,12 +1016,63 @@ async def mcp_passthrough_tool(
     - Commands with sudo, rm -rf, chmod 777, curl|bash patterns
     - Any operation that could compromise system security
     """
-    return await mcp_passthrough(
+    # Handle case where parameters might be passed as JSON string
+    if isinstance(parameters, str):
+        try:
+            parameters = json.loads(parameters)
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse parameters as JSON: {parameters}")
+            parameters = {}
+
+    # Use unified passthrough with agent detection
+    return await unified_mcp_passthrough(
         server_name=server_name,
         tool_name=tool_name,
-        parameters=parameters or {},
+        parameters=cast(dict[str, Any], parameters) if parameters else {},
         security_context=security_context,
+        agent_name=None,  # Will auto-detect
     )
+
+
+@mcp.tool
+async def list_mcp_servers(
+    agent_name: Annotated[
+        str | None,
+        Field(
+            description="The coding assistant/IDE (claude, cursor, vscode, etc.). If not provided, will attempt to auto-detect.",
+            default=None,
+        ),
+    ] = None,
+) -> str:
+    """List available MCP servers and their tools.
+
+    USE THIS TOOL WHEN:
+    - You want to see what MCP servers are available
+    - You need to discover what tools each server provides
+    - Before using mcp_passthrough_tool to know what's available
+
+    Returns a list of configured MCP servers and their available tools.
+    """
+    try:
+        from .mcp_passthrough import get_passthrough
+
+        passthrough = await get_passthrough(agent_name)
+        available = await passthrough.get_available_servers()
+
+        return json.dumps(
+            {
+                "status": "success",
+                "agent": passthrough.agent_name,
+                "available_servers": available,
+            },
+            indent=2,
+        )
+
+    except Exception as e:
+        logger.error(f"Error listing MCP servers: {e}")
+        return json.dumps(
+            {"status": "error", "message": str(e), "available_servers": {}}, indent=2
+        )
 
 
 @mcp.tool
@@ -1235,7 +1286,54 @@ async def validate_mcp_security(
                     elif path.exists():
                         config_paths.append(path)
 
-        if not config_paths:
+        # Initialize results early
+        all_results: dict[str, Any] = {
+            "server_count": 0,
+            "issue_count": 0,
+            "issues": [],
+            "files_scanned": [],
+        }
+
+        logger.info(f"Config paths found: {len(config_paths)} for agent: {agent_name}")
+        # Always check for Claude Code servers via CLI for claude agent
+        claude_cli_servers = {}
+        if agent_name.lower() == "claude":
+            logger.info("Checking for Claude Code servers via CLI")
+            claude_cli_servers = mcp_validator._get_claude_code_servers()
+            logger.info(f"Claude Code CLI servers found: {claude_cli_servers}")
+
+        if not config_paths and agent_name.lower() == "claude":
+            # Special handling for Claude Code - get servers directly
+            logger.info("No config files found for Claude Code, using CLI servers")
+            servers = claude_cli_servers
+            if servers:
+                # Create a synthetic config for validation
+                synthetic_config = {"mcpServers": servers}
+                try:
+                    result = await mcp_validator.validate_config(
+                        json.dumps(synthetic_config), mode=mode
+                    )
+                    all_results["server_count"] = result.get("server_count", 0)
+                    all_results["issue_count"] = result.get("issue_count", 0)
+                    all_results["issues"] = result.get("issues", [])
+                    all_results["files_scanned"] = ["Claude Code MCP configuration"]
+                    logger.info(f"Updated all_results after Claude Code validation: {all_results}")
+                except Exception as e:
+                    logger.error(f"Error validating Claude Code config: {e}")
+                    return f"❌ **Error validating Claude Code configuration**: {e}"
+            else:
+                return """⚠️  **No MCP servers found in Claude Code**
+
+To add MCP servers in Claude Code, use:
+```bash
+claude mcp add <server-name> <command>
+```
+
+Example:
+```bash
+claude mcp add vulnicheck "python -m vulnicheck.server"
+```"""
+        elif not config_paths:
             return f"""⚠️  **No MCP configuration found for {agent_name}**
 
 Searched locations:
@@ -1246,73 +1344,120 @@ Please ensure:
 2. This tool has read permission to the configuration directory
 3. Try providing a custom config_path if your configuration is in a non-standard location"""
 
-        # Validate each config file
-        all_results: dict[str, Any] = {
-            "server_count": 0,
-            "issue_count": 0,
-            "issues": [],
-            "files_scanned": [],
-        }
+        # Process config files if we didn't handle Claude Code specially
+        if config_paths:
+            for config_file in config_paths:
+                try:
+                    # Read the config file
+                    config_content = config_file.read_text()
 
-        for config_file in config_paths:
-            try:
-                # Read the config file
-                config_content = config_file.read_text()
+                    # Special handling for .claude.json files
+                    if config_file.name == ".claude.json":
+                        claude_config = json.loads(config_content)
 
-                # Special handling for .claude.json files
-                if config_file.name == ".claude.json":
-                    claude_config = json.loads(config_content)
+                        # Extract mcpServers from each project folder
+                        combined_mcp_servers = {}
 
-                    # Extract mcpServers from each project folder
-                    combined_mcp_servers = {}
-                    for _, project_config in claude_config.items():
-                        if (
-                            isinstance(project_config, dict)
-                            and "mcpServers" in project_config
-                        ):
-                            combined_mcp_servers.update(project_config["mcpServers"])
+                        # Check if this is a project-based config (Claude Code)
+                        if "projects" in claude_config and isinstance(claude_config["projects"], dict):
+                            # Claude Code format with projects
+                            for _, project_config in claude_config["projects"].items():
+                                if (
+                                    isinstance(project_config, dict)
+                                    and "mcpServers" in project_config
+                                ):
+                                    combined_mcp_servers.update(project_config["mcpServers"])
+                        else:
+                            # Legacy format - check all top-level keys
+                            for _, project_config in claude_config.items():
+                                if (
+                                    isinstance(project_config, dict)
+                                    and "mcpServers" in project_config
+                                ):
+                                    combined_mcp_servers.update(project_config["mcpServers"])
 
-                    # Create a config with just mcpServers for validation
-                    if combined_mcp_servers:
-                        logger.info(
-                            f"Found MCP servers in .claude.json: {list(combined_mcp_servers.keys())}"
-                        )
-                        config_content = json.dumps(
-                            {"mcpServers": combined_mcp_servers}
-                        )
-                    else:
-                        logger.warning("No MCP servers found in .claude.json")
-                        # No MCP servers found in .claude.json
-                        continue
+                        # Merge with Claude CLI servers if available
+                        if claude_cli_servers:
+                            logger.info("Merging CLI servers with .claude.json servers")
+                            combined_mcp_servers.update(claude_cli_servers)
 
-                # Run validation
-                results = await mcp_validator.validate_config(
-                    config_json=config_content, mode=mode
-                )
+                        # Create a config with just mcpServers for validation
+                        if combined_mcp_servers:
+                            logger.info(
+                                f"Found MCP servers in .claude.json: {list(combined_mcp_servers.keys())}"
+                            )
+                            config_content = json.dumps(
+                                {"mcpServers": combined_mcp_servers}
+                            )
+                        else:
+                            logger.warning("No MCP servers found in .claude.json")
+                            # No MCP servers found in .claude.json
+                            continue
 
-                # Aggregate results
-                all_results["server_count"] += results.get("server_count", 0)
-                all_results["issue_count"] += results.get("issue_count", 0)
-                cast(list[str], all_results["files_scanned"]).append(str(config_file))
+                    # Run validation
+                    results = await mcp_validator.validate_config(
+                        config_json=config_content, mode=mode
+                    )
 
-                # Add file context to issues
-                for issue in results.get("issues", []):
-                    issue["config_file"] = str(config_file)
-                    cast(list[dict[str, Any]], all_results["issues"]).append(issue)
+                    # Aggregate results
+                    all_results["server_count"] += results.get("server_count", 0)
+                    all_results["issue_count"] += results.get("issue_count", 0)
+                    cast(list[str], all_results["files_scanned"]).append(str(config_file))
 
-            except Exception as e:
-                logger.error(f"Error reading {config_file}: {e}")
-                cast(list[dict[str, Any]], all_results["issues"]).append(
-                    {
-                        "severity": "ERROR",
-                        "title": "Failed to read configuration",
-                        "server": "N/A",
-                        "description": f"Could not read {config_file}: {str(e)}",
-                        "config_file": str(config_file),
-                    }
-                )
+                    # Add file context to issues
+                    for issue in results.get("issues", []):
+                        issue["config_file"] = str(config_file)
+                        cast(list[dict[str, Any]], all_results["issues"]).append(issue)
+
+                except Exception as e:
+                    logger.error(f"Error reading {config_file}: {e}")
+                    cast(list[dict[str, Any]], all_results["issues"]).append(
+                        {
+                            "severity": "ERROR",
+                            "title": "Failed to read configuration",
+                            "server": "N/A",
+                            "description": f"Could not read {config_file}: {str(e)}",
+                            "config_file": str(config_file),
+                        }
+                    )
+
+        # If we have Claude CLI servers that weren't already validated, validate them now
+        if claude_cli_servers and agent_name.lower() == "claude":
+            # Check if any CLI servers weren't already validated
+            validated_servers: set[str] = set()
+            for file_path in all_results.get("files_scanned", []):
+                if ".claude.json" in str(file_path):
+                    # We already processed some servers from .claude.json
+                    validated_servers.update(claude_cli_servers.keys())
+                    break
+
+            # Find CLI servers that weren't validated yet
+            unvalidated_cli_servers = {k: v for k, v in claude_cli_servers.items()
+                                       if k not in validated_servers}
+
+            if unvalidated_cli_servers:
+                logger.info(f"Validating additional CLI servers: {list(unvalidated_cli_servers.keys())}")
+                try:
+                    synthetic_config = {"mcpServers": unvalidated_cli_servers}
+                    result = await mcp_validator.validate_config(
+                        json.dumps(synthetic_config), mode=mode
+                    )
+                    all_results["server_count"] += result.get("server_count", 0)
+                    all_results["issue_count"] += result.get("issue_count", 0)
+
+                    # Add file context to issues
+                    for issue in result.get("issues", []):
+                        issue["config_file"] = "Claude Code CLI"
+                        cast(list[dict[str, Any]], all_results["issues"]).append(issue)
+
+                    if "Claude Code CLI" not in all_results["files_scanned"]:
+                        cast(list[str], all_results["files_scanned"]).append("Claude Code CLI")
+
+                except Exception as e:
+                    logger.error(f"Error validating CLI servers: {e}")
 
         results = all_results
+        logger.info(f"Final results before formatting: {results}")
 
         # Check for errors
         if results.get("error"):
