@@ -14,6 +14,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .agent_detector import detect_agent
+from .dangerous_commands_config import get_dangerous_commands_config
 from .mcp_client import MCPClient, MCPConnection
 from .mcp_config_cache import MCPConfigCache
 
@@ -195,34 +196,32 @@ Please review this operation carefully before proceeding.
             security_context=security_context or "None provided",
         )
 
-        # Check for obviously dangerous operations
-        dangerous_patterns = [
-            # File system operations on sensitive paths
-            ("/etc/", "file_path"),
-            ("/root/", "file_path"),
-            ("~/.ssh/", "file_path"),
-            (".env", "file_path"),
-            ("password", "file_path"),
-            ("secret", "file_path"),
-            ("key", "file_path"),
-            # Dangerous commands
-            ("rm -rf", "command"),
-            ("sudo", "command"),
-            ("chmod 777", "command"),
-            ("curl | bash", "command"),
-            ("wget | sh", "command"),
-        ]
+        # Get the dangerous commands configuration
+        config = get_dangerous_commands_config()
 
         # Check parameters for dangerous patterns
-        param_str = json.dumps(parameters).lower()
-        for pattern, _ in dangerous_patterns:
-            if pattern.lower() in param_str:
-                logger.warning(f"Blocked potentially dangerous operation: {pattern}")
-                return {
-                    "status": "blocked",
-                    "reason": f"Operation blocked due to potentially dangerous pattern: {pattern}",
-                    "security_prompt": security_prompt,
-                }
+        param_str = json.dumps(parameters)
+
+        # Check the command/tool name itself
+        check_str = f"{server_name} {tool_name} {param_str}"
+
+        # Check for dangerous patterns
+        dangerous_match = config.check_dangerous_pattern(check_str)
+
+        if dangerous_match:
+            category, pattern_name, matched_text = dangerous_match
+            logger.warning(
+                f"Blocked potentially dangerous operation - "
+                f"Category: {category}, Pattern: {pattern_name}, "
+                f"Matched: {matched_text}"
+            )
+            return {
+                "status": "blocked",
+                "reason": f"Operation blocked due to dangerous pattern in category '{category}': {matched_text}",
+                "pattern": pattern_name,
+                "category": category,
+                "security_prompt": security_prompt,
+            }
 
         # If we have real connections enabled, make the actual call
         if self.enable_real_connections and self.connection_pool:
@@ -290,16 +289,20 @@ Please review this operation carefully before proceeding.
         Returns:
             True if access is allowed, False otherwise
         """
-        # Define blocklist of servers that should never be accessed
-        blocked_servers = [
-            "system",
-            "admin",
-            "root",
-            "sudo",
-        ]
+        # Get the dangerous commands configuration
+        config = get_dangerous_commands_config()
 
-        if server_name.lower() in blocked_servers:
-            logger.warning(f"Access to server '{server_name}' is blocked")
+        # Check if the server name matches any blocked server patterns
+        dangerous_match = config.check_dangerous_pattern(
+            server_name, categories=["server"]
+        )
+
+        if dangerous_match:
+            category, pattern_name, matched_text = dangerous_match
+            logger.warning(
+                f"Access to server '{server_name}' is blocked - "
+                f"matches pattern '{pattern_name}'"
+            )
             return False
 
         return True

@@ -1317,7 +1317,9 @@ async def validate_mcp_security(
                     all_results["issue_count"] = result.get("issue_count", 0)
                     all_results["issues"] = result.get("issues", [])
                     all_results["files_scanned"] = ["Claude Code MCP configuration"]
-                    logger.info(f"Updated all_results after Claude Code validation: {all_results}")
+                    logger.info(
+                        f"Updated all_results after Claude Code validation: {all_results}"
+                    )
                 except Exception as e:
                     logger.error(f"Error validating Claude Code config: {e}")
                     return f"❌ **Error validating Claude Code configuration**: {e}"
@@ -1359,14 +1361,18 @@ Please ensure:
                         combined_mcp_servers = {}
 
                         # Check if this is a project-based config (Claude Code)
-                        if "projects" in claude_config and isinstance(claude_config["projects"], dict):
+                        if "projects" in claude_config and isinstance(
+                            claude_config["projects"], dict
+                        ):
                             # Claude Code format with projects
                             for _, project_config in claude_config["projects"].items():
                                 if (
                                     isinstance(project_config, dict)
                                     and "mcpServers" in project_config
                                 ):
-                                    combined_mcp_servers.update(project_config["mcpServers"])
+                                    combined_mcp_servers.update(
+                                        project_config["mcpServers"]
+                                    )
                         else:
                             # Legacy format - check all top-level keys
                             for _, project_config in claude_config.items():
@@ -1374,7 +1380,9 @@ Please ensure:
                                     isinstance(project_config, dict)
                                     and "mcpServers" in project_config
                                 ):
-                                    combined_mcp_servers.update(project_config["mcpServers"])
+                                    combined_mcp_servers.update(
+                                        project_config["mcpServers"]
+                                    )
 
                         # Merge with Claude CLI servers if available
                         if claude_cli_servers:
@@ -1402,7 +1410,9 @@ Please ensure:
                     # Aggregate results
                     all_results["server_count"] += results.get("server_count", 0)
                     all_results["issue_count"] += results.get("issue_count", 0)
-                    cast(list[str], all_results["files_scanned"]).append(str(config_file))
+                    cast(list[str], all_results["files_scanned"]).append(
+                        str(config_file)
+                    )
 
                     # Add file context to issues
                     for issue in results.get("issues", []):
@@ -1432,11 +1442,16 @@ Please ensure:
                     break
 
             # Find CLI servers that weren't validated yet
-            unvalidated_cli_servers = {k: v for k, v in claude_cli_servers.items()
-                                       if k not in validated_servers}
+            unvalidated_cli_servers = {
+                k: v
+                for k, v in claude_cli_servers.items()
+                if k not in validated_servers
+            }
 
             if unvalidated_cli_servers:
-                logger.info(f"Validating additional CLI servers: {list(unvalidated_cli_servers.keys())}")
+                logger.info(
+                    f"Validating additional CLI servers: {list(unvalidated_cli_servers.keys())}"
+                )
                 try:
                     synthetic_config = {"mcpServers": unvalidated_cli_servers}
                     result = await mcp_validator.validate_config(
@@ -1451,7 +1466,9 @@ Please ensure:
                         cast(list[dict[str, Any]], all_results["issues"]).append(issue)
 
                     if "Claude Code CLI" not in all_results["files_scanned"]:
-                        cast(list[str], all_results["files_scanned"]).append("Claude Code CLI")
+                        cast(list[str], all_results["files_scanned"]).append(
+                            "Claude Code CLI"
+                        )
 
                 except Exception as e:
                     logger.error(f"Error validating CLI servers: {e}")

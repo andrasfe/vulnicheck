@@ -57,18 +57,15 @@ class MCPConnection:
 
         # Send initialize request
         response = await self.transport.request(
-            "initialize", {
+            "initialize",
+            {
                 "protocolVersion": "2025-03-26",
-                "capabilities": {
-                    "tools": {},
-                    "prompts": {},
-                    "resources": {}
-                },
+                "capabilities": {"tools": {}, "prompts": {}, "resources": {}},
                 "clientInfo": {
                     "name": "vulnicheck-mcp-passthrough",
-                    "version": "1.0.0"
-                }
-            }
+                    "version": "1.0.0",
+                },
+            },
         )
 
         if "error" in response:
@@ -132,7 +129,9 @@ class MCPConnection:
 class MCPTransport:
     """Base class for MCP transport mechanisms."""
 
-    async def request(self, method: str, params: dict[str, Any] | None) -> dict[str, Any]:
+    async def request(
+        self, method: str, params: dict[str, Any] | None
+    ) -> dict[str, Any]:
         """Send a request and wait for response."""
         raise NotImplementedError
 
@@ -203,7 +202,7 @@ class StdioTransport(MCPTransport):
             while not self._closed:
                 # Read line by line
                 # Buffer limit is set on subprocess creation to handle large responses
-                line = await self.process.stdout.readuntil(b'\n')
+                line = await self.process.stdout.readuntil(b"\n")
                 if not line:
                     break
 
@@ -234,7 +233,9 @@ class StdioTransport(MCPTransport):
             # This is a notification or request from server
             logger.debug(f"Received notification/request: {message}")
 
-    async def request(self, method: str, params: dict[str, Any] | None) -> dict[str, Any]:
+    async def request(
+        self, method: str, params: dict[str, Any] | None
+    ) -> dict[str, Any]:
         """Send a request and wait for response."""
         if self._closed or not self.process or not self.process.stdin:
             raise RuntimeError("Transport is closed")
@@ -247,7 +248,7 @@ class StdioTransport(MCPTransport):
             "jsonrpc": "2.0",
             "id": msg_id,
             "method": method,
-            "params": params if params is not None else {}
+            "params": params if params is not None else {},
         }
 
         # Create future for response
@@ -283,7 +284,7 @@ class StdioTransport(MCPTransport):
         message_dict = {
             "jsonrpc": "2.0",
             "method": method,
-            "params": params if params is not None else {}
+            "params": params if params is not None else {},
         }
 
         message_str = json.dumps(message_dict) + "\n"

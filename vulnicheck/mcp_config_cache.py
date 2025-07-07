@@ -107,7 +107,9 @@ class MCPConfigCache:
                                 "mcpServers"
                             ].items():
                                 if server_name not in servers:  # First one wins
-                                    servers[server_name] = MCPServerConfig(**server_config)
+                                    servers[server_name] = MCPServerConfig(
+                                        **server_config
+                                    )
                 else:
                     # Legacy format - check all top-level keys
                     for _, project_config in data.items():
@@ -119,7 +121,9 @@ class MCPConfigCache:
                                 "mcpServers"
                             ].items():
                                 if server_name not in servers:  # First one wins
-                                    servers[server_name] = MCPServerConfig(**server_config)
+                                    servers[server_name] = MCPServerConfig(
+                                        **server_config
+                                    )
                 return servers
 
             # Standard format - look for mcpServers key
@@ -209,6 +213,7 @@ class MCPConfigCache:
         if agent_name.lower() == "claude":
             try:
                 import subprocess
+
                 result = subprocess.run(
                     ["claude", "mcp", "list"],
                     capture_output=True,
@@ -227,7 +232,7 @@ class MCPConfigCache:
                                 parts = command.strip().split()
                                 all_servers[name] = MCPServerConfig(
                                     command=parts[0],
-                                    args=parts[1:] if len(parts) > 1 else []
+                                    args=parts[1:] if len(parts) > 1 else [],
                                 )
                                 logger.debug(f"Found CLI server '{name}'")
             except Exception as e:
