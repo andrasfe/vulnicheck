@@ -20,39 +20,51 @@ install-local: ## Set up local development environment with venv and Claude inte
 	@bash run-local.sh
 
 .PHONY: test
-test: ## Run all tests (excluding deprecated cache tests)
-	pytest -v tests/test_nvd_client.py tests/test_osv_client.py tests/test_scanner.py tests/integration/test_nvd_integration.py tests/integration/test_osv_integration.py
+test: ## Run all tests
+	uv run pytest -v tests/
 
 .PHONY: test-unit
-test-unit: ## Run unit tests only (excluding deprecated cache tests)
-	pytest -v tests/test_nvd_client.py tests/test_osv_client.py tests/test_scanner.py tests/test_lock_files.py tests/test_ghsa_cve_mapping.py
+test-unit: ## Run unit tests only
+	uv run pytest -v tests/ -k "not integration"
 
 .PHONY: test-integration
-test-integration: ## Run integration tests only (excluding deprecated cache tests)
-	pytest -v tests/integration/test_nvd_integration.py tests/integration/test_osv_integration.py
+test-integration: ## Run integration tests only
+	uv run pytest -v tests/integration/
+
+.PHONY: test-mcp
+test-mcp: ## Run MCP-related tests only
+	uv run pytest -v tests/test_mcp*.py tests/integration/test_mcp*.py
+
+.PHONY: test-security
+test-security: ## Run security-related tests only
+	uv run pytest -v tests/test_dangerous_commands*.py tests/test_secrets_scanner.py tests/test_mcp_validator.py
+
+.PHONY: test-clients
+test-clients: ## Run vulnerability client tests only
+	uv run pytest -v tests/test_nvd_client.py tests/test_osv_client.py tests/test_github_client.py
 
 .PHONY: test-coverage
 test-coverage: ## Run tests with coverage report
-	pytest --cov=vulnicheck --cov-report=html --cov-report=term-missing
+	uv run pytest --cov=vulnicheck --cov-report=html --cov-report=term-missing tests/
 
 .PHONY: lint
 lint: ## Run all linting checks (ruff, mypy)
 	@echo "Running ruff..."
-	ruff check vulnicheck/ tests/
+	uv run ruff check vulnicheck/ tests/
 	@echo "\nRunning mypy..."
-	mypy vulnicheck/
+	uv run mypy vulnicheck/ tests/
 
 .PHONY: lint-fix
 lint-fix: ## Run ruff with auto-fix
-	ruff check --fix vulnicheck/ tests/
+	uv run ruff check --fix vulnicheck/ tests/
 
 .PHONY: format
 format: ## Format code with ruff
-	ruff format vulnicheck/ tests/
+	uv run ruff format vulnicheck/ tests/
 
 .PHONY: type-check
 type-check: ## Run mypy type checking only
-	mypy vulnicheck/
+	uv run mypy vulnicheck/ tests/
 
 .PHONY: clean
 clean: ## Clean up build artifacts and cache files

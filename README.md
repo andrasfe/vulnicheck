@@ -322,6 +322,13 @@ Execute MCP tool calls through a security passthrough layer that validates and m
 }
 ```
 
+**Logging:**
+All MCP passthrough interactions are logged to the `vulnicheck.mcp_interactions` logger with structured JSON format, including:
+- Request details (server, tool, parameters hash)
+- Security decisions (allowed, blocked, approved, denied)
+- Risk assessments and matched patterns
+- Response status and errors
+
 **Integration Example with Zen Server:**
 ```json
 {

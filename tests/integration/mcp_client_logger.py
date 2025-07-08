@@ -14,7 +14,7 @@ class MCPClientLogger:
     """MCP client focused on logging server behavior."""
 
     def __init__(self, log_to_file: bool = True):
-        self.process = None
+        self.process: asyncio.subprocess.Process | None = None
         self.log_to_file = log_to_file
         self.log_file = None
 
@@ -57,7 +57,8 @@ class MCPClientLogger:
             env={**os.environ, "VULNICHECK_DEBUG": "true"},
         )
 
-        self.log(f"Server process started (PID: {self.process.pid})", "CLIENT")
+        if self.process:
+            self.log(f"Server process started (PID: {self.process.pid})", "CLIENT")
 
         # Create monitoring tasks
         stderr_task = asyncio.create_task(self._monitor_stderr())
@@ -70,15 +71,16 @@ class MCPClientLogger:
 
         # Stop monitoring
         self.log("Stopping server...", "CLIENT")
-        self.process.terminate()
+        if self.process:
+            self.process.terminate()
 
-        # Wait for tasks to complete
-        await self.process.wait()
-        stderr_task.cancel()
-        stdout_task.cancel()
-        interaction_task.cancel()
+            # Wait for tasks to complete
+            await self.process.wait()
+            stderr_task.cancel()
+            stdout_task.cancel()
+            interaction_task.cancel()
 
-        self.log(f"Server stopped (exit code: {self.process.returncode})", "CLIENT")
+            self.log(f"Server stopped (exit code: {self.process.returncode})", "CLIENT")
 
     async def _monitor_stderr(self):
         """Monitor stderr output."""

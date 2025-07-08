@@ -7,7 +7,8 @@ from vulnicheck.github_client import GitHubClient
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    os.environ.get("CI") == "true", reason="GitHub API tests may hit rate limits in CI"
+    os.environ.get("CI") == "true" or not os.environ.get("GITHUB_TOKEN"),
+    reason="GitHub API tests require GITHUB_TOKEN to avoid rate limits"
 )
 class TestGitHubIntegration:
     @pytest.fixture

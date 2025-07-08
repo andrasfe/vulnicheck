@@ -15,10 +15,14 @@ from pydantic import BaseModel, Field
 
 from .agent_detector import detect_agent
 from .dangerous_commands_config import get_dangerous_commands_config
+from .logging_config import configure_mcp_logging
 from .mcp_client import MCPClient, MCPConnection
 from .mcp_config_cache import MCPConfigCache
 
 logger = logging.getLogger(__name__)
+
+# Create a separate logger for MCP interactions
+interaction_logger = logging.getLogger("vulnicheck.mcp_interactions")
 
 
 class MCPCall(BaseModel):
@@ -114,6 +118,24 @@ class MCPPassthrough:
         self.agent_name = detect_agent(agent_name)
         logger.info(f"Initialized MCP passthrough for agent: {self.agent_name}")
 
+        # Configure MCP interaction logging
+        log_dir = os.path.expanduser("~/.vulnicheck/logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "mcp_interactions.log")
+
+        # Configure logging with both file and console output
+        configure_mcp_logging(
+            log_file=log_file,
+            log_level=os.environ.get("VULNICHECK_LOG_LEVEL", "INFO"),
+            enable_console=os.environ.get("VULNICHECK_LOG_CONSOLE", "false").lower() == "true"
+        )
+
+        interaction_logger.info(f"MCP passthrough initialized for {self.agent_name}", extra={
+            "event": "passthrough_init",
+            "agent": self.agent_name,
+            "log_file": log_file
+        })
+
         # Determine if we should enable real connections
         if enable_real_connections is None:
             enable_real_connections = (
@@ -183,9 +205,18 @@ Please review this operation carefully before proceeding.
         Returns:
             Result from the MCP tool call or security rejection
         """
-        # Log the attempted call
-        logger.info(
-            f"MCP Passthrough: {server_name}.{tool_name} with params: {parameters}"
+        # Log the incoming request
+        interaction_logger.info(
+            "MCP_REQUEST",
+            extra={
+                "event": "mcp_request",
+                "agent": self.agent_name,
+                "server": server_name,
+                "tool": tool_name,
+                "parameters": parameters,
+                "security_context": security_context,
+                "has_real_connections": self.enable_real_connections,
+            }
         )
 
         # Build security prompt
@@ -210,12 +241,24 @@ Please review this operation carefully before proceeding.
 
         if dangerous_match:
             category, pattern_name, matched_text = dangerous_match
-            logger.warning(
-                f"Blocked potentially dangerous operation - "
-                f"Category: {category}, Pattern: {pattern_name}, "
-                f"Matched: {matched_text}"
+
+            # Log security decision - BLOCKED
+            interaction_logger.warning(
+                "MCP_SECURITY_BLOCKED",
+                extra={
+                    "event": "mcp_security_decision",
+                    "decision": "blocked",
+                    "agent": self.agent_name,
+                    "server": server_name,
+                    "tool": tool_name,
+                    "category": category,
+                    "pattern": pattern_name,
+                    "matched_text": matched_text,
+                    "risk_level": "BLOCKED",
+                }
             )
-            return {
+
+            response = {
                 "status": "blocked",
                 "reason": f"Operation blocked due to dangerous pattern in category '{category}': {matched_text}",
                 "pattern": pattern_name,
@@ -223,25 +266,85 @@ Please review this operation carefully before proceeding.
                 "security_prompt": security_prompt,
             }
 
+            # Log the response with full details
+            interaction_logger.info(
+                "MCP_RESPONSE",
+                extra={
+                    "event": "mcp_response",
+                    "agent": self.agent_name,
+                    "server": server_name,
+                    "tool": tool_name,
+                    "status": "blocked",
+                    "result": response,
+                }
+            )
+
+            return response
+
+        # Log security decision - ALLOWED (no dangerous patterns)
+        interaction_logger.info(
+            "MCP_SECURITY_ALLOWED",
+            extra={
+                "event": "mcp_security_decision",
+                "decision": "allowed",
+                "agent": self.agent_name,
+                "server": server_name,
+                "tool": tool_name,
+                "risk_level": "SAFE",
+            }
+        )
+
         # If we have real connections enabled, make the actual call
         if self.enable_real_connections and self.connection_pool:
             try:
                 result = await self._forward_to_mcp(server_name, tool_name, parameters)
-                return {
+                response = {
                     "status": "success",
                     "result": result,
                     "security_prompt": security_prompt,
                 }
+
+                # Log successful response with full result
+                interaction_logger.info(
+                    "MCP_RESPONSE",
+                    extra={
+                        "event": "mcp_response",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "status": "success",
+                        "result": result,
+                        "has_result": result is not None,
+                    }
+                )
+
+                return response
             except Exception as e:
                 logger.error(f"MCP call failed: {e}")
-                return {
+
+                response = {
                     "status": "error",
                     "error": str(e),
                     "security_prompt": security_prompt,
                 }
+
+                # Log error response
+                interaction_logger.error(
+                    "MCP_RESPONSE_ERROR",
+                    extra={
+                        "event": "mcp_response",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "status": "error",
+                        "error": str(e),
+                    }
+                )
+
+                return response
         else:
             # Return mock response if no real connections
-            return {
+            mock_response: dict[str, Any] = {
                 "status": "mock",
                 "message": "Running in mock mode - no real MCP connections",
                 "requested_call": {
@@ -251,6 +354,22 @@ Please review this operation carefully before proceeding.
                 },
                 "security_prompt": security_prompt,
             }
+            response = mock_response
+
+            # Log mock response with full details
+            interaction_logger.info(
+                "MCP_RESPONSE",
+                extra={
+                    "event": "mcp_response",
+                    "agent": self.agent_name,
+                    "server": server_name,
+                    "tool": tool_name,
+                    "status": "mock",
+                    "result": response,
+                }
+            )
+
+            return response
 
     async def _forward_to_mcp(
         self, server_name: str, tool_name: str, parameters: dict[str, Any]

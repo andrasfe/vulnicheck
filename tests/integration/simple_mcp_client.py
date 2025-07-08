@@ -57,7 +57,7 @@ class SimpleMCPClient:
             decoded = line.decode().rstrip()
             self.log(f"[{name}] {decoded}")
 
-    async def send_json_rpc(self, method: str, params: dict = None):
+    async def send_json_rpc(self, method: str, params: dict | None = None):
         """Send a JSON-RPC request."""
         request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
 

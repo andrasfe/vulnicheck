@@ -64,9 +64,14 @@ strict_optional = true
 exclude = [".venv/", "venv/"]
 
 [[tool.mypy.overrides]]
-module = ["mcp.*", "fastmcp.*"]
+module = ["mcp.*", "fastmcp.*", "mcp_scan.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "pydantic._internal._generate_schema"
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = false

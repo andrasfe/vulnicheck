@@ -27,6 +27,9 @@ from .mcp_config_cache import MCPConfigCache
 
 logger = logging.getLogger(__name__)
 
+# Create a separate logger for MCP interactions
+interaction_logger = logging.getLogger("vulnicheck.mcp_interactions")
+
 
 class ApprovalStatus(Enum):
     """Status of an approval request."""
@@ -155,9 +158,20 @@ This operation requires approval before proceeding.
         """
         Execute an MCP tool call with enhanced security checks and approval flow.
         """
-        # Log the attempted call
-        logger.info(
-            f"MCP Passthrough with approval: {server_name}.{tool_name} with params: {parameters}"
+        # Log the incoming request with risk assessment
+        interaction_logger.info(
+            "MCP_REQUEST_WITH_APPROVAL",
+            extra={
+                "event": "mcp_request",
+                "agent": self.agent_name,
+                "server": server_name,
+                "tool": tool_name,
+                "parameters": parameters,
+                "security_context": security_context,
+                "has_real_connections": self.enable_real_connections,
+                "approval_enabled": True,
+                "auto_approve_low_risk": self.auto_approve_low_risk,
+            }
         )
 
         # Get the dangerous commands configuration
@@ -178,11 +192,41 @@ This operation requires approval before proceeding.
                 "matched_text": matched_text,
                 "description": pattern.description,
                 "risk_explanation": config.get_risk_description(pattern.risk_level),
+                "server_name": server_name,
+                "tool_name": tool_name,
             }
+
+            # Log risk assessment
+            interaction_logger.info(
+                "MCP_RISK_ASSESSMENT",
+                extra={
+                    "event": "mcp_risk_assessment",
+                    "agent": self.agent_name,
+                    "server": server_name,
+                    "tool": tool_name,
+                    "risk_level": pattern.risk_level.value,
+                    "category": pattern.category,
+                    "pattern": pattern.name,
+                    "matched_text": matched_text,
+                    "description": pattern.description,
+                }
+            )
 
             # Handle based on risk level
             if pattern.risk_level == RiskLevel.BLOCKED:
                 # Always block these
+                interaction_logger.warning(
+                    "MCP_SECURITY_BLOCKED",
+                    extra={
+                        "event": "mcp_security_decision",
+                        "decision": "blocked",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "risk_level": pattern.risk_level.value,
+                        "reason": f"Operation blocked: {pattern.description}",
+                    }
+                )
                 return self._create_blocked_response(
                     risk_assessment, f"Operation blocked: {pattern.description}"
                 )
@@ -191,7 +235,18 @@ This operation requires approval before proceeding.
                 pattern.risk_level == RiskLevel.LOW_RISK and self.auto_approve_low_risk
             ):
                 # Auto-approve low risk operations
-                logger.info(f"Auto-approving low risk operation: {pattern.description}")
+                interaction_logger.info(
+                    "MCP_SECURITY_AUTO_APPROVED",
+                    extra={
+                        "event": "mcp_security_decision",
+                        "decision": "auto_approved",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "risk_level": pattern.risk_level.value,
+                        "reason": "Low risk operation auto-approved",
+                    }
+                )
                 return await self._execute_operation(
                     server_name, tool_name, parameters, risk_assessment
                 )
@@ -202,6 +257,18 @@ This operation requires approval before proceeding.
             ]:
                 # Request approval
                 if self.approval_callback:
+                    interaction_logger.info(
+                        "MCP_APPROVAL_REQUESTED",
+                        extra={
+                            "event": "mcp_approval_request",
+                            "agent": self.agent_name,
+                            "server": server_name,
+                            "tool": tool_name,
+                            "risk_level": pattern.risk_level.value,
+                            "category": pattern.category,
+                        }
+                    )
+
                     approval_response = await self._request_approval(
                         server_name,
                         tool_name,
@@ -211,11 +278,37 @@ This operation requires approval before proceeding.
                     )
 
                     if approval_response.approved:
-                        logger.info(f"Operation approved: {approval_response.reason}")
+                        interaction_logger.info(
+                            "MCP_SECURITY_APPROVED",
+                            extra={
+                                "event": "mcp_security_decision",
+                                "decision": "approved",
+                                "agent": self.agent_name,
+                                "server": server_name,
+                                "tool": tool_name,
+                                "risk_level": pattern.risk_level.value,
+                                "reason": approval_response.reason,
+                                "request_id": approval_response.request_id,
+                            }
+                        )
                         return await self._execute_operation(
                             server_name, tool_name, parameters, risk_assessment
                         )
                     else:
+                        interaction_logger.warning(
+                            "MCP_SECURITY_DENIED",
+                            extra={
+                                "event": "mcp_security_decision",
+                                "decision": "denied",
+                                "agent": self.agent_name,
+                                "server": server_name,
+                                "tool": tool_name,
+                                "risk_level": pattern.risk_level.value,
+                                "reason": approval_response.reason,
+                                "request_id": approval_response.request_id,
+                                "alternative": approval_response.suggested_alternative,
+                            }
+                        )
                         return self._create_denied_response(
                             risk_assessment,
                             approval_response.reason,
@@ -223,12 +316,36 @@ This operation requires approval before proceeding.
                         )
                 else:
                     # No approval callback, must block
+                    interaction_logger.warning(
+                        "MCP_SECURITY_BLOCKED",
+                        extra={
+                            "event": "mcp_security_decision",
+                            "decision": "blocked",
+                            "agent": self.agent_name,
+                            "server": server_name,
+                            "tool": tool_name,
+                            "risk_level": pattern.risk_level.value,
+                            "reason": "Operation requires approval but no approval mechanism configured",
+                        }
+                    )
                     return self._create_blocked_response(
                         risk_assessment,
                         "Operation requires approval but no approval mechanism configured",
                     )
 
         # No dangerous patterns found, execute normally
+        interaction_logger.info(
+            "MCP_SECURITY_ALLOWED",
+            extra={
+                "event": "mcp_security_decision",
+                "decision": "allowed",
+                "agent": self.agent_name,
+                "server": server_name,
+                "tool": tool_name,
+                "risk_level": "SAFE",
+                "reason": "No dangerous patterns detected",
+            }
+        )
         return await self._execute_operation(server_name, tool_name, parameters, None)
 
     async def _request_approval(
@@ -332,22 +449,55 @@ This operation requires approval before proceeding.
                 # Make the actual tool call
                 result = await connection.call_tool(tool_name, parameters)
 
-                return {
+                response = {
                     "status": "success",
                     "result": result,
                     "risk_assessment": risk_assessment,
                 }
 
+                # Log successful response
+                interaction_logger.info(
+                    "MCP_RESPONSE",
+                    extra={
+                        "event": "mcp_response",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "status": "success",
+                        "has_result": result is not None,
+                        "risk_level": risk_assessment.get("risk_level") if risk_assessment else "SAFE",
+                    }
+                )
+
+                return response
+
             except Exception as e:
                 logger.error(f"MCP call failed: {e}")
-                return {
+
+                response = {
                     "status": "error",
                     "error": str(e),
                     "risk_assessment": risk_assessment,
                 }
+
+                # Log error response
+                interaction_logger.error(
+                    "MCP_RESPONSE_ERROR",
+                    extra={
+                        "event": "mcp_response",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "status": "error",
+                        "error": str(e),
+                        "risk_level": risk_assessment.get("risk_level") if risk_assessment else "SAFE",
+                    }
+                )
+
+                return response
         else:
             # Mock mode
-            return {
+            response = {
                 "status": "mock",
                 "message": "Running in mock mode - no real MCP connections",
                 "requested_call": {
@@ -358,16 +508,47 @@ This operation requires approval before proceeding.
                 "risk_assessment": risk_assessment,
             }
 
+            # Log mock response
+            interaction_logger.info(
+                "MCP_RESPONSE",
+                extra={
+                    "event": "mcp_response",
+                    "agent": self.agent_name,
+                    "server": server_name,
+                    "tool": tool_name,
+                    "status": "mock",
+                    "risk_level": risk_assessment.get("risk_level") if risk_assessment else "SAFE",
+                }
+            )
+
+            return response
+
     def _create_blocked_response(
         self, risk_assessment: dict[str, Any], reason: str
     ) -> dict[str, Any]:
         """Create a blocked response."""
-        return {
+        response = {
             "status": "blocked",
             "reason": reason,
             "risk_assessment": risk_assessment,
             "security_prompt": self._format_security_prompt(risk_assessment),
         }
+
+        # Log blocked response
+        interaction_logger.info(
+            "MCP_RESPONSE",
+            extra={
+                "event": "mcp_response",
+                "agent": self.agent_name,
+                "server": risk_assessment.get("server_name", "Unknown"),
+                "tool": risk_assessment.get("tool_name", "Unknown"),
+                "status": "blocked",
+                "risk_level": risk_assessment.get("risk_level", "BLOCKED"),
+                "reason": reason,
+            }
+        )
+
+        return response
 
     def _create_denied_response(
         self,
@@ -385,6 +566,21 @@ This operation requires approval before proceeding.
 
         if suggested_alternative:
             response["suggested_alternative"] = suggested_alternative
+
+        # Log denied response
+        interaction_logger.info(
+            "MCP_RESPONSE",
+            extra={
+                "event": "mcp_response",
+                "agent": self.agent_name,
+                "server": risk_assessment.get("server_name", "Unknown"),
+                "tool": risk_assessment.get("tool_name", "Unknown"),
+                "status": "denied",
+                "risk_level": risk_assessment.get("risk_level", "Unknown"),
+                "reason": reason,
+                "alternative": suggested_alternative,
+            }
+        )
 
         return response
 

@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import vulnicheck.mcp_passthrough_with_approval as approval_module
 from vulnicheck.dangerous_commands_risk_config import RiskLevel
 from vulnicheck.mcp_passthrough_with_approval import (
     ApprovalRequest,
     ApprovalResponse,
     MCPPassthroughWithApproval,
-    claude_approval_callback,
     mcp_passthrough_tool_with_approval,
 )
 
@@ -256,41 +256,65 @@ class TestMCPPassthroughWithApproval:
     @pytest.mark.asyncio
     async def test_claude_approval_callback_high_risk(self):
         """Test the example Claude approval callback with high-risk operation."""
-        request = ApprovalRequest(
-            server_name="system",
-            tool_name="execute",
-            parameters={"command": "sudo rm -rf /"},
-            risk_assessment={
-                "risk_level": RiskLevel.HIGH_RISK.value,
-                "category": "privilege",
-                "description": "Run command as root",
-            },
-        )
+        # Save the current callback to restore it after the test
+        original_callback = approval_module.claude_approval_callback
+        try:
+            # Import the original default callback
+            from vulnicheck.mcp_passthrough_with_approval import (
+                default_approval_callback,
+            )
+            approval_module.claude_approval_callback = default_approval_callback
 
-        response = await claude_approval_callback(request)
+            request = ApprovalRequest(
+                server_name="system",
+                tool_name="execute",
+                parameters={"command": "sudo rm -rf /"},
+                risk_assessment={
+                    "risk_level": RiskLevel.HIGH_RISK.value,
+                    "category": "privilege",
+                    "description": "Run command as root",
+                },
+            )
 
-        assert response.approved is False
-        assert "manual review" in response.reason
-        assert response.suggested_alternative is not None
+            response = await default_approval_callback(request)
+
+            assert response.approved is False
+            assert "manual review" in response.reason
+            assert response.suggested_alternative is not None
+        finally:
+            # Restore the original callback
+            approval_module.claude_approval_callback = original_callback
 
     @pytest.mark.asyncio
     async def test_claude_approval_callback_requires_approval(self):
         """Test the example Claude approval callback with requires-approval operation."""
-        request = ApprovalRequest(
-            server_name="system",
-            tool_name="execute",
-            parameters={"command": "rm -r /tmp/test"},
-            risk_assessment={
-                "risk_level": RiskLevel.REQUIRES_APPROVAL.value,
-                "category": "filesystem",
-                "description": "Delete directory recursively",
-            },
-        )
+        # Save the current callback to restore it after the test
+        original_callback = approval_module.claude_approval_callback
+        try:
+            # Import the original default callback
+            from vulnicheck.mcp_passthrough_with_approval import (
+                default_approval_callback,
+            )
+            approval_module.claude_approval_callback = default_approval_callback
 
-        response = await claude_approval_callback(request)
+            request = ApprovalRequest(
+                server_name="system",
+                tool_name="execute",
+                parameters={"command": "rm -r /tmp/test"},
+                risk_assessment={
+                    "risk_level": RiskLevel.REQUIRES_APPROVAL.value,
+                    "category": "filesystem",
+                    "description": "Delete directory recursively",
+                },
+            )
 
-        assert response.approved is True
-        assert "approved after risk assessment" in response.reason
+            response = await default_approval_callback(request)
+
+            assert response.approved is True
+            assert "approved after risk assessment" in response.reason
+        finally:
+            # Restore the original callback
+            approval_module.claude_approval_callback = original_callback
 
     @pytest.mark.asyncio
     async def test_mcp_passthrough_tool_with_approval(self, mock_config):

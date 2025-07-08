@@ -143,6 +143,9 @@ async def test_validate_mcp_security_output_includes_agent():
 async def test_validate_mcp_security_no_config_found():
     """Test when no config files are found for an agent."""
     mock_validator = AsyncMock()
+    mock_validator.validate_config = AsyncMock()
+    # Mock _get_claude_code_servers to return empty dict
+    mock_validator._get_claude_code_servers = lambda: {}
 
     with (
         patch("vulnicheck.server.mcp_validator", mock_validator),
@@ -153,5 +156,5 @@ async def test_validate_mcp_security_no_config_found():
     ):
         result = await validate_mcp_security_func(agent_name="claude", mode="scan")
 
-    assert "No MCP configuration found for claude" in result
-    assert "Searched locations:" in result
+    assert "No MCP servers found in Claude Code" in result
+    assert "claude mcp add" in result

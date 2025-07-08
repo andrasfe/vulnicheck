@@ -74,6 +74,9 @@ class MCPTestClient:
         print(f"\n📤 Sending request: {method}")
         print(f"   Params: {json.dumps(params, indent=2) if params else 'None'}")
 
+        if not self.writer or not self.reader:
+            raise RuntimeError("Server not started")
+
         self.writer.write(request_str.encode())
         await self.writer.drain()
 

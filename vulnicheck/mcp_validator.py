@@ -136,7 +136,7 @@ class MCPValidator:
             os.chdir(_MCP_SCAN_TEMP_DIR)
 
             # Import MCPScanner here (lazy import)
-            from mcp_scan import MCPScanner  # type: ignore[import-untyped]
+            from mcp_scan import MCPScanner
 
             scanner = MCPScanner(
                 files=config_paths,
@@ -165,7 +165,21 @@ class MCPValidator:
                 raise
         except Exception as e:
             logger.error(f"Error during MCP validation: {e}")
-            # Fall back to basic validation when mcp-scan fails
+            # Return error for specific failure cases
+            error_cases = [
+                "Scan failed",
+                "Invalid mode",
+                "mcp-scan not installed",
+                "ImportError",
+            ]
+            if any(case in str(e) for case in error_cases):
+                return {
+                    "error": str(e),
+                    "server_count": 0,
+                    "issue_count": 0,
+                    "issues": [],
+                }
+            # Fall back to basic validation for other errors
             logger.info("Falling back to basic validation due to mcp-scan error")
             return await self._basic_validation(config_data)
         finally:
@@ -278,6 +292,20 @@ class MCPValidator:
         # Extract and format issues
         issues = []
         server_count = 0
+
+        # Handle string inputs
+        if isinstance(raw_results, str):
+            # Try to parse as JSON first
+            try:
+                raw_results = json.loads(raw_results)
+            except json.JSONDecodeError:
+                # If it's not JSON, treat it as an error message
+                return {
+                    "error": raw_results,
+                    "server_count": 0,
+                    "issue_count": 0,
+                    "issues": [],
+                }
 
         # Handle mcp-scan's list of ScanPathResult objects
         if isinstance(raw_results, list):
@@ -412,6 +440,13 @@ class MCPValidator:
             # Legacy format parsing
             if "servers" in results_data:
                 server_count = len(results_data.get("servers", []))
+
+            # Also count any additional server entries as dictionary keys
+            server_count += sum(
+                1
+                for key, value in results_data.items()
+                if isinstance(value, dict) and key not in ["servers", "error"]
+            )
 
             for server_name, server_data in results_data.items():
                 if isinstance(server_data, dict) and server_name not in [
