@@ -133,6 +133,42 @@ main() {
     
     success "VulniCheck added to Claude configuration"
     
+    # Step 4.5: Configure Cursor (if config exists)
+    header "Checking for Cursor..."
+    
+    CURSOR_CONFIG="$HOME/.cursor/mcp.json"
+    
+    if [ -f "$CURSOR_CONFIG" ]; then
+        info "Found Cursor configuration"
+        
+        # Check if vulnicheck is already configured
+        if grep -q '"vulnicheck"' "$CURSOR_CONFIG" 2>/dev/null; then
+            info "VulniCheck already configured in Cursor"
+        else
+            # Backup config
+            cp "$CURSOR_CONFIG" "$CURSOR_CONFIG.backup.$(date +%s)"
+            info "Backed up Cursor configuration"
+            
+            # Add vulnicheck to config
+            info "Adding VulniCheck to Cursor configuration..."
+            # Check if Cursor is using URL-based config
+            if jq -e '.mcpServers.vulnicheck.url' "$CURSOR_CONFIG" >/dev/null 2>&1; then
+                info "Cursor is using URL-based MCP config, updating to command-based..."
+            fi
+            jq '.mcpServers.vulnicheck = {
+                "command": "'"$PYTHON_PATH"'",
+                "args": ["-m", "vulnicheck.server"],
+                "env": {
+                    "PYTHONPATH": "'"$(pwd)"'"
+                }
+            }' "$CURSOR_CONFIG" > "$CURSOR_CONFIG.tmp" && mv "$CURSOR_CONFIG.tmp" "$CURSOR_CONFIG"
+            
+            success "VulniCheck added to Cursor configuration"
+        fi
+    else
+        info "Cursor configuration not found (skipping)"
+    fi
+    
     # Step 5: Test installation
     header "Testing installation..."
     
@@ -157,15 +193,27 @@ main() {
     
     # Show current MCP servers
     echo ""
-    info "Current MCP servers:"
+    info "Current Claude MCP servers:"
     jq -r '.mcpServers | keys[]' "$CLAUDE_CONFIG" | sed 's/^/  - /'
+    
+    if [ -f "$CURSOR_CONFIG" ]; then
+        echo ""
+        info "Current Cursor MCP servers:"
+        jq -r '.mcpServers | keys[]' "$CURSOR_CONFIG" | sed 's/^/  - /'
+    fi
     
     # Final message
     echo ""
     header "Setup complete!"
     success "VulniCheck is installed and configured"
     echo ""
-    echo "Please restart Claude Code to use VulniCheck"
+    
+    # Show restart instructions based on what was configured
+    if [ -f "$CURSOR_CONFIG" ] && grep -q '"vulnicheck"' "$CURSOR_CONFIG" 2>/dev/null; then
+        echo "Please restart Claude Code and Cursor to use VulniCheck"
+    else
+        echo "Please restart Claude Code to use VulniCheck"
+    fi
     echo ""
     echo "Optional environment variables:"
     echo "  export NVD_API_KEY=your-key     # For higher NVD rate limits"
