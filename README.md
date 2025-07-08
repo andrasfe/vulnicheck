@@ -29,23 +29,26 @@ This software incorporates or references data from publicly available sources, i
 
 **Requirements:** Python 3.10 or higher
 
-1. **Install:**
+1. **Automated Installation and Setup:**
 ```bash
 git clone https://github.com/andrasfe/vulnicheck.git
 cd vulnicheck
-make install-local
+./run-local.sh
 ```
 
-This script will:
+This will automatically:
 - Create a virtual environment
-- Install all dependencies
-- Show you how to configure Claude
+- Install all dependencies with uv (if available) or pip
+- Configure Claude Desktop
+- Test the installation
 
-2. **Configure your IDE:**
+After setup, restart Claude Code to use VulniCheck.
+
+2. **Manual Configuration (if needed):**
 
 **Claude Desktop:**
 
-Add to your Claude MCP settings at `~/.claude.json` (or through the UI):
+Add to your Claude MCP settings at `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/claude/claude_desktop_config.json` (Linux):
 ```json
 {
   "mcpServers": {
@@ -82,12 +85,14 @@ Add to your MCP settings:
 }
 ```
 
-## Installation Options
+## Alternative Installation Options
 
-### Option 1: Quick Start with Make (Recommended)
-Use `make install-local` as shown above. It handles everything automatically.
+### Manual Installation with Make
+```bash
+make install-local
+```
 
-### Option 2: Manual Installation
+### Manual Installation
 ```bash
 # Create and activate virtual environment
 python -m venv .venv
@@ -100,7 +105,7 @@ pip install -e .
 python -m vulnicheck.server
 ```
 
-### Option 3: System-wide Installation
+### System-wide Installation
 ```bash
 # Install globally (not recommended)
 pip install .
@@ -125,14 +130,14 @@ Once the service is running and your IDE is configured, you can interact with Vu
 ```bash
 # Update the installation
 git pull
-make install-local
+./run-local.sh
 
-# Test the server manually
-python -m vulnicheck.server
+# Run the server manually
+.venv/bin/python -m vulnicheck.server
 # (Press Ctrl+C to stop)
 
 # Run with API keys for enhanced rate limits
-NVD_API_KEY=your-key GITHUB_TOKEN=your-token python -m vulnicheck.server
+NVD_API_KEY=your-key GITHUB_TOKEN=your-token .venv/bin/python -m vulnicheck.server
 ```
 
 ## Available Tools

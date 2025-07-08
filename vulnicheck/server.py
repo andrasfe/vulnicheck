@@ -12,6 +12,10 @@ from pydantic import Field
 
 from .github_client import GitHubClient
 from .mcp_passthrough import mcp_passthrough_tool as unified_mcp_passthrough
+from .mcp_passthrough_interactive import (
+    get_interactive_passthrough,
+    mcp_passthrough_interactive,
+)
 from .mcp_validator import MCPValidator
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
@@ -985,8 +989,15 @@ async def mcp_passthrough_tool(
             description="Additional security constraints for this call", default=None
         ),
     ] = None,
+    use_approval: Annotated[
+        bool,
+        Field(
+            description="Enable risk-based approval mechanism for this operation (uses enhanced passthrough with approval/denial tools)",
+            default=False,
+        ),
+    ] = False,
 ) -> str:
-    """Execute an MCP tool call through a security passthrough layer.
+    """Execute an MCP tool call through an enhanced security passthrough layer with risk assessment.
 
     USE THIS TOOL WHEN:
     - You need to call a tool on another MCP server
@@ -998,23 +1009,26 @@ async def mcp_passthrough_tool(
     - Internal tool calls within this server
 
     This tool acts as a security layer between the LLM and MCP servers,
-    intercepting calls and adding security constraints to prevent potentially
-    harmful operations like:
-    - Accessing sensitive system files
-    - Executing dangerous shell commands
-    - Reading files containing secrets or credentials
-    - Making modifications to critical system settings
+    intercepting calls and providing risk-based security enforcement:
+
+    Risk Levels:
+    - BLOCKED: Always blocked operations (rm -rf /, system files)
+    - HIGH_RISK: Requires explicit approval (sudo, critical modifications)
+    - REQUIRES_APPROVAL: Needs approval but may be legitimate (rm -r, installs)
+    - LOW_RISK: Logged but auto-approved (downloads, git operations)
 
     The tool will:
     1. Validate the target server is allowed
-    2. Check parameters for dangerous patterns
-    3. Inject security prompts to guide safe execution
-    4. Return results with security context
+    2. Assess risk level of the operation
+    3. Request approval for risky operations (when approval mechanism is available)
+    4. Block dangerous operations automatically
+    5. Return results with risk assessment information
 
-    Example dangerous patterns that are blocked:
-    - File paths containing /etc/, /root/, ~/.ssh/, .env, passwords, keys
-    - Commands with sudo, rm -rf, chmod 777, curl|bash patterns
-    - Any operation that could compromise system security
+    Example dangerous patterns by risk level:
+    - BLOCKED: rm -rf /, access to /etc/shadow, pickle.loads
+    - HIGH_RISK: sudo commands, system shutdowns, DROP DATABASE
+    - REQUIRES_APPROVAL: recursive deletions, package installs, ALTER TABLE
+    - LOW_RISK: file downloads, git clone operations
     """
     # Handle case where parameters might be passed as JSON string
     if isinstance(parameters, str):
@@ -1024,14 +1038,122 @@ async def mcp_passthrough_tool(
             logger.warning(f"Failed to parse parameters as JSON: {parameters}")
             parameters = {}
 
-    # Use unified passthrough with agent detection
-    return await unified_mcp_passthrough(
-        server_name=server_name,
-        tool_name=tool_name,
-        parameters=cast(dict[str, Any], parameters) if parameters else {},
-        security_context=security_context,
-        agent_name=None,  # Will auto-detect
-    )
+    # Use the parameter to determine which passthrough to use
+    if use_approval:
+        # Use interactive passthrough with approval mechanism
+        return await mcp_passthrough_interactive(
+            server_name=server_name,
+            tool_name=tool_name,
+            parameters=cast(dict[str, Any], parameters) if parameters else {},
+            security_context=security_context,
+        )
+    else:
+        # Use original passthrough
+        return await unified_mcp_passthrough(
+            server_name=server_name,
+            tool_name=tool_name,
+            parameters=cast(dict[str, Any], parameters) if parameters else {},
+            security_context=security_context,
+            agent_name=None,  # Will auto-detect
+        )
+
+
+@mcp.tool
+async def approve_mcp_operation(
+    request_id: Annotated[
+        str, Field(description="The request ID from the approval request")
+    ],
+    reason: Annotated[
+        str, Field(description="Justification for approving this operation")
+    ],
+) -> str:
+    """Approve a pending MCP operation that requires security approval.
+
+    USE THIS TOOL WHEN:
+    - You receive a security approval request for an MCP operation
+    - You've analyzed the operation and determined it's safe
+    - The operation aligns with the user's intent
+
+    The approval decision should consider:
+    - Whether the operation matches the user's stated goals
+    - If the risk is acceptable for the current context
+    - Whether there are safer alternatives available
+    """
+    try:
+        # Get the interactive passthrough instance
+        passthrough = get_interactive_passthrough()
+
+        # Process the approval
+        result = await passthrough.process_approval(
+            request_id=request_id, approved=True, reason=reason
+        )
+
+        if result.get("status") == "error":
+            return f"❌ {result.get('message', 'Unknown error')}"
+
+        # Return approval confirmation
+        return f"""✅ **Operation Approved**
+
+**Request ID**: {request_id}
+**Operation**: {result.get('operation', 'Unknown')}
+**Reason**: {reason}
+
+The operation has been approved. Please retry the original tool call to execute it."""
+
+    except Exception as e:
+        logger.error(f"Error approving operation: {e}")
+        return f"❌ Error approving operation: {str(e)}"
+
+
+@mcp.tool
+async def deny_mcp_operation(
+    request_id: Annotated[
+        str, Field(description="The request ID from the approval request")
+    ],
+    reason: Annotated[str, Field(description="Explanation for denying this operation")],
+    alternative: Annotated[
+        str | None,
+        Field(description="Suggested safer alternative approach", default=None),
+    ] = None,
+) -> str:
+    """Deny a pending MCP operation that requires security approval.
+
+    USE THIS TOOL WHEN:
+    - You receive a security approval request for an MCP operation
+    - You've determined the operation is too risky
+    - There are safer alternatives to achieve the goal
+
+    Always provide a clear reason and suggest alternatives when possible.
+    """
+    try:
+        # Get the interactive passthrough instance
+        passthrough = get_interactive_passthrough()
+
+        # Process the denial
+        result = await passthrough.process_approval(
+            request_id=request_id,
+            approved=False,
+            reason=reason,
+            suggested_alternative=alternative,
+        )
+
+        if result.get("status") == "error":
+            return f"❌ {result.get('message', 'Unknown error')}"
+
+        response = f"""🚫 **Operation Denied**
+
+**Request ID**: {request_id}
+**Operation**: {result.get('operation', 'Unknown')}
+**Reason**: {reason}"""
+
+        if alternative:
+            response += f"\n\n**Suggested Alternative**: {alternative}"
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Error denying operation: {e}")
+        return f"❌ Error denying operation: {str(e)}"
 
 
 @mcp.tool
