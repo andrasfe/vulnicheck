@@ -1,6 +1,6 @@
 # VulniCheck MCP Server
 
-A Python-based MCP (Model Context Protocol) server that provides real-time security advice about Python modules by querying multiple authoritative vulnerability databases including OSV.dev, NVD (National Vulnerability Database), and GitHub Advisory Database. 
+A Python-based MCP (Model Context Protocol) server that provides real-time security advice about Python modules by querying multiple authoritative vulnerability databases including OSV.dev, NVD (National Vulnerability Database), and GitHub Advisory Database.
 
 ## DISCLAIMER
 
@@ -171,7 +171,7 @@ Scan a requirements file or directory for vulnerabilities in all dependencies.
 
 **Behavior:**
 - If given a file: Scans the dependency file directly
-- If given a directory: 
+- If given a directory:
   - First checks for requirements.txt or pyproject.toml
   - If none found, scans all Python files for imports and checks latest versions
 
