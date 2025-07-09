@@ -225,6 +225,19 @@ class DependencyScanner:
                 return match.group(1), match.group(2).strip()
             return line, ""
 
+    def check_package(self, name: str, version_spec: str | None = None) -> list[Any]:
+        """Check if a package has vulnerabilities (synchronous wrapper)."""
+        import asyncio
+
+        # Get or create event loop
+        try:
+            asyncio.get_running_loop()
+            # We're already in an async context, can't use run
+            return []
+        except RuntimeError:
+            # No running loop, create one
+            return asyncio.run(self._check_package(name, version_spec or ""))
+
     async def _check_package(self, name: str, version_spec: str) -> list[Any]:
         """Check if a package has vulnerabilities."""
         vulns = await self.osv_client.check_package(name)

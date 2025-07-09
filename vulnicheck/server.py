@@ -10,6 +10,7 @@ from typing import Annotated, Any, cast
 from fastmcp import FastMCP
 from pydantic import Field
 
+from .docker_scanner import DockerScanner
 from .github_client import GitHubClient
 from .mcp_passthrough import mcp_passthrough_tool as unified_mcp_passthrough
 from .mcp_passthrough_interactive import (
@@ -41,6 +42,7 @@ github_client = None
 scanner = None
 secrets_scanner = None
 mcp_validator = None
+docker_scanner = None
 
 
 def _ensure_clients_initialized() -> None:
@@ -51,7 +53,8 @@ def _ensure_clients_initialized() -> None:
         github_client, \
         scanner, \
         secrets_scanner, \
-        mcp_validator
+        mcp_validator, \
+        docker_scanner
     if osv_client is None:
         osv_client = OSVClient()
         nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
@@ -59,6 +62,7 @@ def _ensure_clients_initialized() -> None:
         scanner = DependencyScanner(osv_client, nvd_client, github_client)
         secrets_scanner = SecretsScanner()
         mcp_validator = MCPValidator(local_only=True)
+        docker_scanner = DockerScanner(scanner)
 
 
 @lru_cache(maxsize=1000)
@@ -1754,6 +1758,190 @@ Please ensure:
     except Exception as e:
         logger.error(f"Error validating MCP security: {e}")
         return f"Error during MCP security validation: {str(e)}\n\nThis may indicate mcp-scan is not properly installed or configured."
+
+
+@mcp.tool
+async def scan_dockerfile(
+    dockerfile_path: Annotated[
+        str | None,
+        Field(
+            description="Absolute path to the Dockerfile to scan. Either this or dockerfile_content must be provided."
+        ),
+    ] = None,
+    dockerfile_content: Annotated[
+        str | None,
+        Field(
+            description="Content of the Dockerfile as a string. Either this or dockerfile_path must be provided."
+        ),
+    ] = None,
+) -> str:
+    """Scan a Dockerfile for Python dependencies and check for vulnerabilities.
+
+    This tool analyzes Dockerfiles to extract Python package installations
+    and checks them for known vulnerabilities.
+
+    USE THIS TOOL WHEN:
+    - You need to check vulnerabilities in Docker images
+    - You want to analyze Python dependencies in Dockerfiles
+    - You need to audit container security for Python packages
+
+    The tool will:
+    1. Parse the Dockerfile to find Python package installations
+    2. Extract package names and versions from various installation methods
+    3. Check each package for known vulnerabilities
+    4. Return a detailed report with vulnerability information
+
+    Supported package installation methods:
+    - pip install commands
+    - requirements.txt files
+    - pyproject.toml files
+    - poetry add commands
+    - pipenv install commands
+    - conda install commands
+
+    Returns a formatted report with:
+    - Total packages found
+    - List of vulnerable packages
+    - Vulnerability details including severity and CVE IDs
+    - Referenced dependency files
+    """
+    try:
+        _ensure_clients_initialized()
+        assert docker_scanner is not None
+
+        # Validate inputs
+        if not dockerfile_path and not dockerfile_content:
+            return """❌ **Error**: Either dockerfile_path or dockerfile_content must be provided.
+
+Usage:
+- Provide dockerfile_path: An absolute path to a Dockerfile
+- Provide dockerfile_content: The content of a Dockerfile as a string"""
+
+        # Run the scan
+        results = await docker_scanner.scan_dockerfile_async(
+            dockerfile_path=dockerfile_path,
+            dockerfile_content=dockerfile_content
+        )
+
+        # Check for errors
+        if results.get("error"):
+            return f"❌ **Error scanning Dockerfile**: {results['error']}"
+
+        # Format the results
+        lines = ["# Dockerfile Vulnerability Scan Report", ""]
+
+        # Summary
+        lines.extend([
+            "## Summary",
+            f"- Total packages found: {results['packages_found']}",
+            f"- Vulnerable packages: {len(results['vulnerable_packages'])}",
+            f"- Total vulnerabilities: {results['total_vulnerabilities']}",
+            ""
+        ])
+
+        # Severity breakdown
+        if results['total_vulnerabilities'] > 0:
+            lines.extend([
+                "## Severity Breakdown",
+                f"- CRITICAL: {results['severity_summary']['CRITICAL']}",
+                f"- HIGH: {results['severity_summary']['HIGH']}",
+                f"- MODERATE: {results['severity_summary']['MODERATE']}",
+                f"- LOW: {results['severity_summary']['LOW']}",
+                f"- UNKNOWN: {results['severity_summary']['UNKNOWN']}",
+                ""
+            ])
+
+        # Dependencies found
+        if results['dependencies']:
+            lines.append("## Dependencies Found")
+            for package, version in sorted(results['dependencies'].items()):
+                version_str = version or "latest"
+                status = "⚠️" if package in results['vulnerable_packages'] else "✅"
+                lines.append(f"{status} {package} ({version_str})")
+            lines.append("")
+
+        # Referenced files
+        if results['referenced_files']:
+            lines.extend([
+                "## Referenced Dependency Files",
+                "The following dependency files are referenced in the Dockerfile:"
+            ])
+            for file in results['referenced_files']:
+                lines.append(f"- {file}")
+            lines.append("")
+
+        # Vulnerability details
+        if results['vulnerabilities']:
+            lines.append("## Vulnerability Details")
+
+            # Group by package
+            by_package: dict[str, list[Any]] = {}
+            for vuln_info in results['vulnerabilities']:
+                package = vuln_info['package']
+                if package not in by_package:
+                    by_package[package] = []
+                by_package[package].append(vuln_info)
+
+            for package in sorted(by_package.keys()):
+                vulns = by_package[package]
+                lines.append(f"\n### {package} ({vulns[0]['installed_version']})")
+
+                for vuln_info in vulns:
+                    vuln = vuln_info['vulnerability']
+                    lines.append(f"\n**{vuln.get('id', 'Unknown ID')}**")
+                    lines.append(f"- Severity: {vuln.get('severity', 'UNKNOWN')}")
+
+                    if vuln.get('summary'):
+                        lines.append(f"- Summary: {vuln['summary']}")
+
+                    if vuln.get('fixed_version'):
+                        lines.append(f"- Fixed in: {vuln['fixed_version']}")
+
+                    if vuln.get('cve_id'):
+                        lines.append(f"- CVE: {vuln['cve_id']}")
+
+                    if vuln.get('url'):
+                        lines.append(f"- Details: {vuln['url']}")
+
+            lines.append("")
+
+        # Recommendations
+        if results['vulnerable_packages']:
+            lines.extend([
+                "## Recommendations",
+                "1. Update vulnerable packages to their latest secure versions",
+                "2. Use specific version pinning instead of 'latest' tags",
+                "3. Regularly scan and update base images",
+                "4. Consider using multi-stage builds to minimize attack surface",
+                "5. Use tools like Docker Scout or Trivy for comprehensive container scanning"
+            ])
+        else:
+            lines.extend([
+                "## ✅ No Vulnerabilities Found",
+                "",
+                "No known vulnerabilities were detected in the Python dependencies.",
+                "Remember to:",
+                "- Keep dependencies updated",
+                "- Use specific version pinning",
+                "- Regularly rescan as new vulnerabilities are discovered"
+            ])
+
+        lines.extend([
+            "",
+            "---",
+            "*Note: This scan only checks Python package vulnerabilities. For comprehensive container security, also scan base images and system packages.*"
+        ])
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error scanning Dockerfile: {e}")
+        return f"""❌ **Error during Dockerfile scan**: {str(e)}
+
+Please ensure:
+1. The Dockerfile path is correct (if provided)
+2. You have read permissions for the file
+3. The Dockerfile content is valid"""
 
 
 def main() -> None:

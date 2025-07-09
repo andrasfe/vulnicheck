@@ -109,7 +109,7 @@ docker-compose down
 ### Core Components
 
 1. **MCP Server** (`vulnicheck/server.py`): FastMCP-based server exposing vulnerability checking tools via Model Context Protocol
-   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`
+   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`
    - Runs on port 3000 by default (configurable via MCP_PORT env var)
 
 2. **Vulnerability Clients**:
@@ -132,7 +132,13 @@ docker-compose down
    - Supports approval workflows for high-risk operations
    - Logs all MCP interactions with full payloads (hourly rotation)
 
-7. **Rate Limiting** (`rate_limiter.py`): Handles API rate limits for external services
+7. **Docker Scanner** (`docker_scanner.py`):
+   - Analyzes Dockerfiles for Python package installations
+   - Supports multiple package managers (pip, poetry, pipenv, conda)
+   - Extracts package versions and checks for vulnerabilities
+   - Identifies referenced dependency files
+
+8. **Rate Limiting** (`rate_limiter.py`): Handles API rate limits for external services
 
 ### Key Implementation Details
 
@@ -192,3 +198,4 @@ docker-compose down
 - Fixed test order dependencies that were causing intermittent failures
 - All tests now pass (234 passed, 12 skipped) with clean linting
 - Added pre-commit hooks that run `make lint` and `make test-unit` before commits
+- Added `scan_dockerfile` tool to analyze Dockerfiles for Python dependency vulnerabilities

@@ -347,6 +347,56 @@ All MCP passthrough interactions are logged to the `vulnicheck.mcp_interactions`
 
 This tool acts as a security layer between LLMs and MCP servers, preventing potentially harmful operations while maintaining transparency about security constraints. It has been tested successfully with various MCP servers including the Zen thinking server.
 
+### 7. scan_dockerfile
+
+Analyze Dockerfiles for Python dependencies and check for vulnerabilities.
+
+**Parameters:**
+- `dockerfile_path` (optional): Absolute path to the Dockerfile to scan
+- `dockerfile_content` (optional): Content of the Dockerfile as a string
+
+**Note:** Either `dockerfile_path` or `dockerfile_content` must be provided.
+
+**Example:**
+```json
+{
+  "tool": "scan_dockerfile",
+  "dockerfile_path": "/path/to/Dockerfile"
+}
+```
+
+**Capabilities:**
+- Extracts Python packages from various installation methods:
+  - `pip install` commands (with version specifiers)
+  - `poetry add` commands
+  - `pipenv install` commands
+  - `conda install` commands
+- Identifies referenced dependency files:
+  - requirements.txt
+  - pyproject.toml
+  - Pipfile/Pipfile.lock
+  - poetry.lock
+  - environment.yml
+- Checks each extracted package for known vulnerabilities
+- Provides severity breakdown and detailed vulnerability information
+- Groups vulnerabilities by package for easy review
+
+**Example with dockerfile_content:**
+```json
+{
+  "tool": "scan_dockerfile",
+  "dockerfile_content": "FROM python:3.9\nRUN pip install requests==2.28.0 flask>=2.0.0\nCOPY requirements.txt .\nRUN pip install -r requirements.txt"
+}
+```
+
+**Response includes:**
+- Total packages found and vulnerable packages count
+- Severity breakdown (CRITICAL, HIGH, MODERATE, LOW)
+- List of all dependencies with vulnerability status
+- Referenced dependency files found in the Dockerfile
+- Detailed vulnerability information for each affected package
+- Recommendations for securing the Docker image
+
 ## Example Output
 
 ### Package Vulnerability Check
