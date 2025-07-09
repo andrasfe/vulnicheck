@@ -12,10 +12,12 @@ from pydantic import Field
 
 from .docker_scanner import DockerScanner
 from .github_client import GitHubClient
-from .mcp_passthrough import mcp_passthrough_tool as unified_mcp_passthrough
 from .mcp_passthrough_interactive import (
     get_interactive_passthrough,
     mcp_passthrough_interactive,
+)
+from .mcp_passthrough_with_approval import (
+    mcp_passthrough_tool_with_approval as unified_mcp_passthrough,
 )
 from .mcp_validator import MCPValidator
 from .nvd_client import NVDClient

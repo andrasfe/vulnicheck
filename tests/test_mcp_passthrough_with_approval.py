@@ -81,9 +81,16 @@ class TestMCPPassthroughWithApproval:
     @pytest.mark.asyncio
     async def test_execute_safe_operation(self, mock_config):
         """Test executing a safe operation (no dangerous patterns)."""
+        # Mock LLM risk assessor to be disabled
+        mock_assessor = MagicMock()
+        mock_assessor.enabled = False
+
         with patch(
             "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
+        ), patch(
+            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(enable_real_connections=False)
 
@@ -109,9 +116,16 @@ class TestMCPPassthroughWithApproval:
 
         mock_config.check_dangerous_pattern.return_value = (mock_pattern, "rm -rf /")
 
+        # Mock LLM risk assessor to be disabled
+        mock_assessor = MagicMock()
+        mock_assessor.enabled = False
+
         with patch(
             "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
+        ), patch(
+            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(enable_real_connections=False)
 
@@ -139,9 +153,16 @@ class TestMCPPassthroughWithApproval:
 
         mock_config.check_dangerous_pattern.return_value = (mock_pattern, "sudo")
 
+        # Mock LLM risk assessor to be disabled
+        mock_assessor = MagicMock()
+        mock_assessor.enabled = False
+
         with patch(
             "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
+        ), patch(
+            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
                 enable_real_connections=False, approval_callback=mock_approval_callback
@@ -170,9 +191,16 @@ class TestMCPPassthroughWithApproval:
 
         mock_config.check_dangerous_pattern.return_value = (mock_pattern, "sudo")
 
+        # Mock LLM risk assessor to be disabled
+        mock_assessor = MagicMock()
+        mock_assessor.enabled = False
+
         with patch(
             "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
+        ), patch(
+            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
                 enable_real_connections=False, approval_callback=mock_denial_callback
@@ -200,9 +228,16 @@ class TestMCPPassthroughWithApproval:
 
         mock_config.check_dangerous_pattern.return_value = (mock_pattern, "curl -o")
 
+        # Mock LLM risk assessor to be disabled
+        mock_assessor = MagicMock()
+        mock_assessor.enabled = False
+
         with patch(
             "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
+        ), patch(
+            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
                 enable_real_connections=False, auto_approve_low_risk=True
@@ -229,9 +264,16 @@ class TestMCPPassthroughWithApproval:
 
         mock_config.check_dangerous_pattern.return_value = (mock_pattern, "rm -r")
 
+        # Mock LLM risk assessor to be disabled
+        mock_assessor = MagicMock()
+        mock_assessor.enabled = False
+
         with patch(
             "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
+        ), patch(
+            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
                 enable_real_connections=False,
@@ -392,9 +434,16 @@ class TestMCPPassthroughWithApproval:
 
         mock_config.check_dangerous_pattern.return_value = (mock_pattern, "rm -r")
 
+        # Mock LLM risk assessor to be disabled
+        mock_assessor = MagicMock()
+        mock_assessor.enabled = False
+
         with patch(
             "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
+        ), patch(
+            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
                 enable_real_connections=False, approval_callback=mock_approval_callback

@@ -22,6 +22,7 @@ from .dangerous_commands_risk_config import (
     RiskLevel,
     get_dangerous_commands_risk_config,
 )
+from .llm_risk_assessor import get_risk_assessor
 from .mcp_client import MCPClient
 from .mcp_config_cache import MCPConfigCache
 
@@ -135,6 +136,7 @@ Server: {server_name}
 Tool: {tool_name}
 Risk Level: {risk_level}
 Risk Category: {risk_category}
+Assessment Type: {assessment_type}
 
 Operation Details:
 {parameters}
@@ -142,6 +144,7 @@ Operation Details:
 Risk Assessment:
 - Pattern Matched: {pattern_matched}
 - Description: {risk_description}
+- Assessment Method: {assessment_method}
 
 {additional_context}
 
@@ -174,50 +177,188 @@ This operation requires approval before proceeding.
             }
         )
 
-        # Get the dangerous commands configuration
-        config = get_dangerous_commands_risk_config()
+        # Initialize risk assessment to None
+        risk_assessment = None
 
-        # Check for dangerous patterns
-        check_str = f"{server_name} {tool_name} {json.dumps(parameters)}"
-        match_result = config.check_dangerous_pattern(check_str)
+        # First, check with LLM risk assessor if available
+        risk_assessor = get_risk_assessor()
+        llm_assessment_successful = False
 
-        if match_result:
-            pattern, matched_text = match_result
+        if risk_assessor.enabled:
+            try:
+                is_safe, llm_risk_level, llm_explanation = await risk_assessor.assess_request(
+                    server_name, tool_name, parameters, security_context
+                )
+                llm_assessment_successful = True
 
-            # Build risk assessment
-            risk_assessment = {
-                "risk_level": pattern.risk_level.value,
-                "category": pattern.category,
-                "pattern_name": pattern.name,
-                "matched_text": matched_text,
-                "description": pattern.description,
-                "risk_explanation": config.get_risk_description(pattern.risk_level),
-                "server_name": server_name,
-                "tool_name": tool_name,
-            }
+                # Log LLM assessment performed
+                interaction_logger.info(
+                    "MCP_LLM_ASSESSMENT",
+                    extra={
+                        "event": "mcp_llm_assessment",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "assessment_type": "ai",
+                        "assessment_method": "llm_request_analysis",
+                        "is_safe": is_safe,
+                        "llm_risk_level": llm_risk_level,
+                        "has_explanation": bool(llm_explanation),
+                    }
+                )
 
-            # Log risk assessment
-            interaction_logger.info(
-                "MCP_RISK_ASSESSMENT",
-                extra={
-                    "event": "mcp_risk_assessment",
-                    "agent": self.agent_name,
-                    "server": server_name,
-                    "tool": tool_name,
+                # Handle LLM assessment results
+                if not is_safe:
+                    # LLM identified a risk
+                    # Handle based on LLM risk level
+                    if llm_risk_level == "BLOCKED":
+                        # Create risk assessment for blocked operation
+                        blocked_risk_assessment = {
+                            "risk_level": llm_risk_level,
+                            "category": "llm_security",
+                            "pattern_name": "llm_assessment",
+                            "matched_text": f"{server_name}.{tool_name}",
+                            "description": llm_explanation or "LLM identified security risk",
+                            "risk_explanation": "AI-powered security assessment detected risk",
+                            "server_name": server_name,
+                            "tool_name": tool_name,
+                            "assessment_type": "ai",
+                            "assessment_method": "llm_risk_assessor",
+                        }
+
+                        interaction_logger.warning(
+                            "MCP_SECURITY_BLOCKED",
+                            extra={
+                                "event": "mcp_security_decision",
+                                "decision": "blocked",
+                                "agent": self.agent_name,
+                                "server": server_name,
+                                "tool": tool_name,
+                                "risk_level": llm_risk_level,
+                                "reason": f"LLM assessment: {llm_explanation}",
+                                "assessment_type": "ai",
+                                "assessment_method": "llm_risk_assessor",
+                            }
+                        )
+                        return self._create_blocked_response(
+                            blocked_risk_assessment, f"LLM security assessment blocked operation: {llm_explanation}"
+                        )
+
+                    # For non-BLOCKED risks from LLM, continue with approval flow
+                    # This handles HIGH_RISK, REQUIRES_APPROVAL, etc.
+                    interaction_logger.info(
+                        "MCP_RISK_ASSESSMENT",
+                        extra={
+                            "event": "mcp_risk_assessment",
+                            "agent": self.agent_name,
+                            "server": server_name,
+                            "tool": tool_name,
+                            "risk_level": llm_risk_level,
+                            "assessment_type": "ai",
+                            "assessment_method": "llm_risk_assessor",
+                        }
+                    )
+                    # Skip pattern matching - go directly to approval flow
+                    # which is handled after the pattern matching section
+
+                    # Important: Set risk_assessment here so we skip pattern matching
+                    # and go directly to the approval flow at the end
+                    risk_assessment = {
+                        "risk_level": llm_risk_level,
+                        "category": "llm_security",
+                        "pattern_name": "llm_assessment",
+                        "matched_text": f"{server_name}.{tool_name}",
+                        "description": llm_explanation or "LLM identified security risk",
+                        "risk_explanation": "AI-powered security assessment detected risk",
+                        "server_name": server_name,
+                        "tool_name": tool_name,
+                        "assessment_type": "ai",
+                        "assessment_method": "llm_risk_assessor",
+                    }
+
+                elif is_safe:
+                    # LLM says it's safe - allow without pattern checking
+                    interaction_logger.info(
+                        "MCP_SECURITY_ALLOWED",
+                        extra={
+                            "event": "mcp_security_decision",
+                            "agent": self.agent_name,
+                            "server": server_name,
+                            "tool": tool_name,
+                            "risk_level": "SAFE",
+                            "decision": "allowed",
+                            "assessment_type": "ai",
+                            "assessment_method": "llm_risk_assessor",
+                        }
+                    )
+                    # Execute the operation
+                    return await self._execute_operation(server_name, tool_name, parameters, None)
+
+            except Exception as e:
+                # LLM assessment failed - log and fall back to pattern matching
+                interaction_logger.warning(
+                    "MCP_LLM_ASSESSMENT_FAILED",
+                    extra={
+                        "event": "mcp_llm_assessment_error",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "error": str(e),
+                        "fallback": "pattern_matching",
+                    }
+                )
+                llm_assessment_successful = False
+
+        # Only use pattern matching if LLM is not available or failed
+        if not llm_assessment_successful:
+            # Get the dangerous commands configuration
+            config = get_dangerous_commands_risk_config()
+
+            # Check for dangerous patterns
+            check_str = f"{server_name} {tool_name} {json.dumps(parameters)}"
+            match_result = config.check_dangerous_pattern(check_str)
+
+            if match_result:
+                pattern, matched_text = match_result
+
+                # Build risk assessment
+                risk_assessment = {
                     "risk_level": pattern.risk_level.value,
                     "category": pattern.category,
-                    "pattern": pattern.name,
+                    "pattern_name": pattern.name,
                     "matched_text": matched_text,
                     "description": pattern.description,
+                    "risk_explanation": config.get_risk_description(pattern.risk_level),
+                    "server_name": server_name,
+                    "tool_name": tool_name,
+                    "assessment_type": "pattern",
+                    "assessment_method": "regex_pattern_matching",
                 }
-            )
 
-            # Handle based on risk level
-            if pattern.risk_level == RiskLevel.BLOCKED:
-                # Always block these
-                interaction_logger.warning(
-                    "MCP_SECURITY_BLOCKED",
+                # Log risk assessment
+                interaction_logger.info(
+                    "MCP_RISK_ASSESSMENT",
                     extra={
+                        "event": "mcp_risk_assessment",
+                        "agent": self.agent_name,
+                        "server": server_name,
+                        "tool": tool_name,
+                        "risk_level": pattern.risk_level.value,
+                        "category": pattern.category,
+                        "pattern": pattern.name,
+                        "matched_text": matched_text,
+                        "description": pattern.description,
+                        "assessment_type": "pattern",
+                        "assessment_method": "regex_pattern_matching",
+                    }
+                )
+
+                # Handle based on risk level
+                if pattern.risk_level == RiskLevel.BLOCKED:
+                    # Always block these
+                    interaction_logger.warning(
+                        "MCP_SECURITY_BLOCKED",
+                        extra={
                         "event": "mcp_security_decision",
                         "decision": "blocked",
                         "agent": self.agent_name,
@@ -225,16 +366,124 @@ This operation requires approval before proceeding.
                         "tool": tool_name,
                         "risk_level": pattern.risk_level.value,
                         "reason": f"Operation blocked: {pattern.description}",
+                        "assessment_type": "pattern",
+                        "assessment_method": "regex_pattern_matching",
                     }
                 )
-                return self._create_blocked_response(
-                    risk_assessment, f"Operation blocked: {pattern.description}"
-                )
+                    return self._create_blocked_response(
+                        risk_assessment, f"Operation blocked: {pattern.description}"
+                    )
 
-            elif (
-                pattern.risk_level == RiskLevel.LOW_RISK and self.auto_approve_low_risk
-            ):
-                # Auto-approve low risk operations
+                elif (
+                    pattern.risk_level == RiskLevel.LOW_RISK and self.auto_approve_low_risk
+                ):
+                    # Auto-approve low risk operations
+                    interaction_logger.info(
+                        "MCP_SECURITY_AUTO_APPROVED",
+                        extra={
+                            "event": "mcp_security_decision",
+                            "decision": "auto_approved",
+                            "agent": self.agent_name,
+                            "server": server_name,
+                            "tool": tool_name,
+                            "risk_level": pattern.risk_level.value,
+                            "reason": "Low risk operation auto-approved",
+                            "assessment_type": "pattern",
+                            "assessment_method": "regex_pattern_matching",
+                        }
+                    )
+                    return await self._execute_operation(
+                        server_name, tool_name, parameters, risk_assessment
+                    )
+
+                elif pattern.risk_level in [
+                    RiskLevel.HIGH_RISK,
+                    RiskLevel.REQUIRES_APPROVAL,
+                ]:
+                    # Request approval
+                    if self.approval_callback:
+                        interaction_logger.info(
+                            "MCP_APPROVAL_REQUESTED",
+                            extra={
+                                "event": "mcp_approval_request",
+                                "agent": self.agent_name,
+                                "server": server_name,
+                                "tool": tool_name,
+                                "risk_level": pattern.risk_level.value,
+                                "category": pattern.category,
+                            }
+                        )
+
+                        approval_response = await self._request_approval(
+                            server_name,
+                            tool_name,
+                            parameters,
+                            risk_assessment,
+                            security_context,
+                        )
+
+                        if approval_response.approved:
+                            interaction_logger.info(
+                                "MCP_SECURITY_APPROVED",
+                                extra={
+                                    "event": "mcp_security_decision",
+                                    "decision": "approved",
+                                    "agent": self.agent_name,
+                                    "server": server_name,
+                                    "tool": tool_name,
+                                    "risk_level": pattern.risk_level.value,
+                                    "reason": approval_response.reason,
+                                    "request_id": approval_response.request_id,
+                                }
+                            )
+                            return await self._execute_operation(
+                                server_name, tool_name, parameters, risk_assessment
+                            )
+                        else:
+                            interaction_logger.warning(
+                                "MCP_SECURITY_DENIED",
+                                extra={
+                                    "event": "mcp_security_decision",
+                                    "decision": "denied",
+                                    "agent": self.agent_name,
+                                    "server": server_name,
+                                    "tool": tool_name,
+                                    "risk_level": pattern.risk_level.value,
+                                    "reason": approval_response.reason,
+                                    "request_id": approval_response.request_id,
+                                    "alternative": approval_response.suggested_alternative,
+                                }
+                            )
+                            return self._create_denied_response(
+                                risk_assessment,
+                                approval_response.reason,
+                                approval_response.suggested_alternative,
+                            )
+                    else:
+                        # No approval callback, must block
+                        interaction_logger.warning(
+                            "MCP_SECURITY_BLOCKED",
+                            extra={
+                                "event": "mcp_security_decision",
+                                "decision": "blocked",
+                                "agent": self.agent_name,
+                                "server": server_name,
+                                "tool": tool_name,
+                                "risk_level": pattern.risk_level.value,
+                                "reason": "Operation requires approval but no approval mechanism configured",
+                            }
+                        )
+                        return self._create_blocked_response(
+                            risk_assessment,
+                            "Operation requires approval but no approval mechanism configured",
+                        )
+
+        # Handle approval flow if we have a risk assessment (from either LLM or pattern)
+        if risk_assessment:
+            risk_level_str = risk_assessment["risk_level"]
+
+            # Auto-approve low risk
+            if risk_level_str == "LOW_RISK" and self.auto_approve_low_risk:
                 interaction_logger.info(
                     "MCP_SECURITY_AUTO_APPROVED",
                     extra={
@@ -243,19 +492,18 @@ This operation requires approval before proceeding.
                         "agent": self.agent_name,
                         "server": server_name,
                         "tool": tool_name,
-                        "risk_level": pattern.risk_level.value,
+                        "risk_level": risk_level_str,
                         "reason": "Low risk operation auto-approved",
+                        "assessment_type": risk_assessment.get("assessment_type", "unknown"),
+                        "assessment_method": risk_assessment.get("assessment_method", "unknown"),
                     }
                 )
                 return await self._execute_operation(
                     server_name, tool_name, parameters, risk_assessment
                 )
 
-            elif pattern.risk_level in [
-                RiskLevel.HIGH_RISK,
-                RiskLevel.REQUIRES_APPROVAL,
-            ]:
-                # Request approval
+            # Request approval for HIGH_RISK or REQUIRES_APPROVAL
+            elif risk_level_str in ["HIGH_RISK", "REQUIRES_APPROVAL"]:
                 if self.approval_callback:
                     interaction_logger.info(
                         "MCP_APPROVAL_REQUESTED",
@@ -264,8 +512,8 @@ This operation requires approval before proceeding.
                             "agent": self.agent_name,
                             "server": server_name,
                             "tool": tool_name,
-                            "risk_level": pattern.risk_level.value,
-                            "category": pattern.category,
+                            "risk_level": risk_level_str,
+                            "assessment_type": risk_assessment.get("assessment_type", "unknown"),
                         }
                     )
 
@@ -286,9 +534,11 @@ This operation requires approval before proceeding.
                                 "agent": self.agent_name,
                                 "server": server_name,
                                 "tool": tool_name,
-                                "risk_level": pattern.risk_level.value,
+                                "risk_level": risk_level_str,
                                 "reason": approval_response.reason,
                                 "request_id": approval_response.request_id,
+                                "assessment_type": risk_assessment.get("assessment_type", "unknown"),
+                                "assessment_method": risk_assessment.get("assessment_method", "unknown"),
                             }
                         )
                         return await self._execute_operation(
@@ -303,10 +553,12 @@ This operation requires approval before proceeding.
                                 "agent": self.agent_name,
                                 "server": server_name,
                                 "tool": tool_name,
-                                "risk_level": pattern.risk_level.value,
+                                "risk_level": risk_level_str,
                                 "reason": approval_response.reason,
                                 "request_id": approval_response.request_id,
                                 "alternative": approval_response.suggested_alternative,
+                                "assessment_type": risk_assessment.get("assessment_type", "unknown"),
+                                "assessment_method": risk_assessment.get("assessment_method", "unknown"),
                             }
                         )
                         return self._create_denied_response(
@@ -324,8 +576,10 @@ This operation requires approval before proceeding.
                             "agent": self.agent_name,
                             "server": server_name,
                             "tool": tool_name,
-                            "risk_level": pattern.risk_level.value,
+                            "risk_level": risk_level_str,
                             "reason": "Operation requires approval but no approval mechanism configured",
+                            "assessment_type": risk_assessment.get("assessment_type", "unknown"),
+                            "assessment_method": risk_assessment.get("assessment_method", "unknown"),
                         }
                     )
                     return self._create_blocked_response(
@@ -333,7 +587,7 @@ This operation requires approval before proceeding.
                         "Operation requires approval but no approval mechanism configured",
                     )
 
-        # No dangerous patterns found, execute normally
+        # No risk assessment at all - allow (no dangerous patterns or LLM found it safe)
         interaction_logger.info(
             "MCP_SECURITY_ALLOWED",
             extra={
@@ -344,6 +598,8 @@ This operation requires approval before proceeding.
                 "tool": tool_name,
                 "risk_level": "SAFE",
                 "reason": "No dangerous patterns detected",
+                "assessment_type": "pattern",
+                "assessment_method": "no_match",
             }
         )
         return await self._execute_operation(server_name, tool_name, parameters, None)
@@ -448,6 +704,82 @@ This operation requires approval before proceeding.
 
                 # Make the actual tool call
                 result = await connection.call_tool(tool_name, parameters)
+
+                # Check response with LLM risk assessor if available
+                risk_assessor = get_risk_assessor()
+                if risk_assessor.enabled:
+                    is_safe, llm_risk_level, llm_explanation = await risk_assessor.assess_response(
+                        server_name, tool_name, parameters, result, None
+                    )
+
+                    # Log LLM response assessment performed
+                    interaction_logger.info(
+                        "MCP_LLM_RESPONSE_ASSESSMENT",
+                        extra={
+                            "event": "mcp_llm_response_assessment",
+                            "agent": self.agent_name,
+                            "server": server_name,
+                            "tool": tool_name,
+                            "assessment_type": "ai",
+                            "assessment_method": "llm_response_analysis",
+                            "is_safe": is_safe,
+                            "llm_risk_level": llm_risk_level,
+                            "has_explanation": bool(llm_explanation),
+                        }
+                    )
+
+                    if not is_safe and llm_risk_level in ["HIGH_RISK", "REQUIRES_APPROVAL"]:
+                        # Response contains security risks - need approval to proceed
+                        interaction_logger.warning(
+                            "MCP_LLM_RESPONSE_RISK",
+                            extra={
+                                "event": "mcp_response_risk",
+                                "agent": self.agent_name,
+                                "server": server_name,
+                                "tool": tool_name,
+                                "risk_level": llm_risk_level,
+                                "reason": f"LLM assessment: {llm_explanation}",
+                                "assessment_type": "ai",
+                                "assessment_method": "llm_response_analysis",
+                            }
+                        )
+
+                        # Create enhanced risk assessment
+                        enhanced_risk_assessment = risk_assessment or {}
+                        enhanced_risk_assessment.update({
+                            "response_risk_level": llm_risk_level,
+                            "response_risk_explanation": llm_explanation,
+                            "sensitive_content_detected": True,
+                        })
+
+                        # If we have an approval callback, request approval for risky response
+                        if self.approval_callback and llm_risk_level in ["HIGH_RISK", "REQUIRES_APPROVAL"]:
+                            approval_response = await self._request_approval(
+                                server_name,
+                                tool_name,
+                                parameters,
+                                enhanced_risk_assessment,
+                                f"Response contains sensitive content: {llm_explanation}",
+                            )
+
+                            if not approval_response.approved:
+                                interaction_logger.warning(
+                                    "MCP_LLM_RESPONSE_DENIED",
+                                    extra={
+                                        "event": "mcp_security_decision",
+                                        "decision": "response_denied",
+                                        "agent": self.agent_name,
+                                        "server": server_name,
+                                        "tool": tool_name,
+                                        "risk_level": llm_risk_level,
+                                        "reason": approval_response.reason,
+                                    }
+                                )
+                                return self._create_denied_response(
+                                    enhanced_risk_assessment,
+                                    f"Response denied due to security risks: {approval_response.reason}",
+                                    approval_response.suggested_alternative,
+                                )
 
                 response = {
                     "status": "success",
@@ -591,9 +923,11 @@ This operation requires approval before proceeding.
             tool_name=risk_assessment.get("tool_name", "Unknown"),
             risk_level=risk_assessment.get("risk_level", "Unknown"),
             risk_category=risk_assessment.get("category", "Unknown"),
+            assessment_type=risk_assessment.get("assessment_type", "Unknown").upper(),
             parameters="<parameters hidden for security>",
             pattern_matched=risk_assessment.get("pattern_name", "Unknown"),
             risk_description=risk_assessment.get("description", "No description"),
+            assessment_method=risk_assessment.get("assessment_method", "Unknown"),
             additional_context=risk_assessment.get("risk_explanation", ""),
         )
 
