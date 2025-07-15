@@ -22,6 +22,7 @@ from .mcp_passthrough_with_approval import (
 from .mcp_validator import MCPValidator
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
+from .safety_advisor import SafetyAdvisor
 from .scanner import DependencyScanner
 from .secrets_scanner import SecretsScanner
 
@@ -1944,6 +1945,130 @@ Please ensure:
 1. The Dockerfile path is correct (if provided)
 2. You have read permissions for the file
 3. The Dockerfile content is valid"""
+
+
+@mcp.tool
+async def assess_operation_safety(
+    operation_type: Annotated[
+        str,
+        Field(
+            description="Type of operation (e.g., 'file_write', 'file_delete', 'command_execution', 'api_call')"
+        ),
+    ],
+    operation_details: Annotated[
+        dict[str, Any],
+        Field(
+            description="Details about the operation. For file operations: include 'path' and optionally 'content'. For commands: include 'command' and 'args'. For API calls: include 'endpoint' and 'method'."
+        ),
+    ],
+    context: Annotated[
+        str | None,
+        Field(
+            description="Additional context about why this operation is being performed",
+            default=None,
+        ),
+    ] = None,
+) -> str:
+    """Assess the safety of an operation BEFORE execution.
+
+    USE THIS TOOL WHEN:
+    - Before performing file write/delete operations
+    - Before executing system commands
+    - Before making API calls with potential side effects
+    - When you need to evaluate operation risks
+    - When implementing potentially dangerous functionality
+
+    The tool will:
+    1. Use LLM-based risk assessment when available (OpenAI/Anthropic API keys configured)
+    2. Fall back to structured risk patterns if no LLM is available
+    3. Provide specific risks, recommendations, and whether human approval is needed
+
+    For operations without LLM support, returns guidance on:
+    - Enumerating risks involved
+    - Assessing each risk
+    - Asking for human approval when risks are identified
+
+    Example usage:
+    - operation_type: "file_write"
+      operation_details: {"path": "/etc/hosts", "content": "127.0.0.1 localhost"}
+    - operation_type: "command_execution"
+      operation_details: {"command": "rm", "args": ["-rf", "/tmp/cache"]}
+    - operation_type: "file_delete"
+      operation_details: {"path": "~/.ssh/id_rsa"}
+
+    Returns a safety assessment with:
+    - Identified risks
+    - Recommendations
+    - Whether human approval is required
+    """
+    try:
+        logger.info(f"Assessing safety for {operation_type} operation")
+
+        # Call the safety advisor
+        advisor = SafetyAdvisor()
+        result = await advisor.assess_operation(operation_type, operation_details, context)
+
+        # Format the response
+        lines = [f"# Safety Assessment for {operation_type.replace('_', ' ').title()}"]
+        lines.append("")
+        lines.append(f"**Assessment**: {result['assessment']}")
+        lines.append("")
+
+        risks = result.get("risks")
+        if risks and isinstance(risks, list):
+            lines.append("## ⚠️ Identified Risks")
+            for risk in risks:
+                lines.append(f"- {risk}")
+            lines.append("")
+
+        recommendations = result.get("recommendations")
+        if recommendations and isinstance(recommendations, list):
+            lines.append("## 💡 Recommendations")
+            for rec in recommendations:
+                lines.append(f"- {rec}")
+            lines.append("")
+
+        if result.get("requires_human_approval"):
+            lines.append("## 🚨 Human Approval Required")
+            lines.append("This operation has been identified as potentially risky.")
+            lines.append("Please review the risks and recommendations above before proceeding.")
+            lines.append("")
+            lines.append("**Ask the user**: Are you willing to accept these risks and proceed with this operation?")
+        else:
+            lines.append("## ✅ Assessment Complete")
+            lines.append("No critical risks identified. Proceed with standard precautions.")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error assessing operation safety: {e}")
+        # Provide fallback guidance
+        return f"""# Safety Assessment Error
+
+Unable to perform automated safety assessment: {str(e)}
+
+## Manual Risk Assessment Required
+
+You should evaluate based on your risk aversion whether this is a safe thing to do:
+
+1. **Enumerate the risks involved**:
+   - What could go wrong?
+   - What data could be lost or exposed?
+   - What system functionality could be affected?
+
+2. **Assess each risk**:
+   - How likely is each risk?
+   - What would be the impact if it occurs?
+   - Are there ways to mitigate the risk?
+
+3. **Make a decision**:
+   - If you identify risks, ask the human if they are willing to accept them
+   - Consider safer alternatives if available
+   - Document your decision and reasoning
+
+**Operation details**:
+- Type: {operation_type}
+- Context: {context or 'No context provided'}"""
 
 
 def main() -> None:

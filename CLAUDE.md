@@ -109,7 +109,7 @@ docker-compose down
 ### Core Components
 
 1. **MCP Server** (`vulnicheck/server.py`): FastMCP-based server exposing vulnerability checking tools via Model Context Protocol
-   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`
+   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`, `assess_operation_safety`
    - Runs on port 3000 by default (configurable via MCP_PORT env var)
 
 2. **Vulnerability Clients**:
@@ -128,7 +128,8 @@ docker-compose down
 
 6. **MCP Passthrough** (`mcp_passthrough.py`, `mcp_passthrough_with_approval.py`):
    - Provides secure proxying of MCP tool calls with risk assessment
-   - Blocks dangerous operations based on configurable patterns
+   - **LLM-Based Risk Assessment**: Uses OpenAI/Anthropic APIs to intelligently assess risk
+   - Pattern matching only used as fallback when LLM is unavailable
    - Supports approval workflows for high-risk operations
    - Logs all MCP interactions with full payloads (hourly rotation)
 
@@ -140,6 +141,13 @@ docker-compose down
 
 8. **Rate Limiting** (`rate_limiter.py`): Handles API rate limits for external services
 
+9. **Safety Advisor** (`safety_advisor.py`):
+   - Pre-operation risk assessment tool for LLMs
+   - Uses LLM-based assessment when API keys are available
+   - Falls back to structured risk patterns when LLM unavailable
+   - Provides risk levels, specific risks, recommendations, and approval requirements
+   - Returns user-friendly guidance for risk evaluation when no LLM is available
+
 ### Key Implementation Details
 
 - All clients are initialized lazily to avoid connection issues at startup
@@ -147,11 +155,18 @@ docker-compose down
 - Comprehensive error handling and fallback mechanisms
 - Security-focused with file size limits and path validation
 - Returns vulnerability data with disclaimers about "AS IS" warranty
+- **LLM Risk Assessment** (`llm_risk_assessor.py`):
+  - Supports both OpenAI and Anthropic APIs
+  - Analyzes MCP requests/responses for security risks
+  - Returns structured risk levels: BLOCKED, HIGH_RISK, REQUIRES_APPROVAL, LOW_RISK
+  - Gracefully degrades to pattern matching when API unavailable
 
 ## Environment Variables
 
 - `NVD_API_KEY`: API key for NVD (increases rate limit from 5 to 50 requests/30s)
 - `GITHUB_TOKEN`: GitHub token for Advisory Database (increases rate limit to 5000 requests/hour)
+- `OPENAI_API_KEY`: OpenAI API key for LLM-based risk assessment in MCP passthrough
+- `ANTHROPIC_API_KEY`: Anthropic API key for LLM-based risk assessment (alternative to OpenAI)
 - `MCP_PORT`: Port for MCP server (default: 3000)
 - `CACHE_TTL`: Cache time-to-live in seconds (default: 900)
 - `REQUEST_TIMEOUT`: API request timeout in seconds
@@ -185,7 +200,9 @@ docker-compose down
 - Supports both exact version checking (via lock files) and version range checking
 - When scanning directories without dependency files, imports are analyzed and latest versions checked
 - The `validate_mcp_security` tool allows LLMs to self-assess their security posture before performing sensitive operations
-- MCP passthrough includes security validation to prevent dangerous operations
+- MCP passthrough includes intelligent LLM-based security validation to prevent dangerous operations
+  - LLM assessment provides context-aware risk evaluation instead of rigid pattern matching
+  - Falls back to pattern matching only when LLM APIs are unavailable
 - Test order dependencies have been resolved to ensure consistent test results
 
 ## Recent Improvements (2025)
@@ -196,6 +213,21 @@ docker-compose down
 - Added comprehensive MCP interaction logging with full payload capture
 - Implemented hourly log rotation for MCP logs
 - Fixed test order dependencies that were causing intermittent failures
-- All tests now pass (234 passed, 12 skipped) with clean linting
+- All tests now pass (209 unit tests, 2 skipped) with clean linting and type checking
 - Added pre-commit hooks that run `make lint` and `make test-unit` before commits
 - Added `scan_dockerfile` tool to analyze Dockerfiles for Python dependency vulnerabilities
+- **Implemented LLM-based risk assessment for MCP passthrough**:
+  - Integrates with OpenAI/Anthropic APIs for intelligent security decisions
+  - Provides context-aware risk evaluation instead of rigid pattern matching
+  - Automatically falls back to pattern matching when LLM is unavailable
+  - Significantly reduces false positives while maintaining security
+- **Added safety advisor tool (`assess_operation_safety`)**:
+  - Pre-operation risk assessment tool that LLMs can consult before performing potentially dangerous operations
+  - Uses LLM-based assessment when OPENAI_API_KEY or ANTHROPIC_API_KEY is available
+  - Falls back to structured risk patterns and user guidance when no LLM is available
+  - Provides comprehensive risk assessment with specific risks, recommendations, and approval requirements
+  - Returns guidance: "you should evaluate based on your risk aversion whether this is a safe thing to do. as a first step, enumerate the risks involved, then assess each risk. finally, if you identify risks, ask the human if they are willing to accept this risk."
+
+## Memories
+
+- No Docker for VulniCheck deployment. Remember that Docker is not used for deploying the VulniCheck service.

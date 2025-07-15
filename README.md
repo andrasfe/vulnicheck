@@ -22,6 +22,7 @@ This software incorporates or references data from publicly available sources, i
 - **Docker security scanning** - analyzes Dockerfiles for vulnerable Python dependencies
 - **MCP security validation** - self-assessment capability for LLMs to validate their security posture
 - **MCP security passthrough** - validates and monitors cross-server MCP operations with built-in security constraints
+- **Pre-operation safety assessment** - evaluates risks before performing file operations, commands, or API calls
 - **Detailed CVE information** including CVSS scores and severity ratings
 - **CWE (Common Weakness Enumeration) mapping** for better understanding of vulnerability types
 - **FastMCP integration** for simplified Model Context Protocol implementation
@@ -419,7 +420,45 @@ List available MCP servers and their tools.
 }
 ```
 
-### 11. scan_dockerfile
+### 11. assess_operation_safety
+
+Pre-operation risk assessment tool for evaluating the safety of file operations, command execution, and API calls before performing them.
+
+**Parameters:**
+- `operation_type` (required): Type of operation (e.g., 'file_write', 'file_delete', 'command_execution', 'api_call')
+- `operation_details` (required): Details about the operation as a dictionary
+  - For file operations: include 'path' and optionally 'content'
+  - For commands: include 'command' and 'args'
+  - For API calls: include 'endpoint' and 'method'
+- `context` (optional): Additional context about why this operation is being performed
+
+**Example:**
+```json
+{
+  "tool": "assess_operation_safety",
+  "operation_type": "file_read",
+  "operation_details": {"path": "/etc/passwd"},
+  "context": "User wants to check system users"
+}
+```
+
+**Response includes:**
+- Risk assessment (using LLM when API keys are available, structured patterns otherwise)
+- Identified risks with specific concerns
+- Recommendations for safer alternatives
+- Whether human approval is required
+- When no LLM is available, provides guidance for manual risk evaluation
+
+**Risk Assessment Features:**
+- **LLM-based assessment** when OPENAI_API_KEY or ANTHROPIC_API_KEY is configured
+- **Structured risk patterns** as fallback when no LLM is available
+- **Context-aware evaluation** considering the operation's purpose
+- **Specific risk identification** for different operation types
+- **Actionable recommendations** for risk mitigation
+
+This tool helps LLMs and developers make informed decisions about potentially dangerous operations before executing them, promoting a security-first approach to system interactions.
+
+### 12. scan_dockerfile
 
 Analyze Dockerfiles for Python dependencies and check for vulnerabilities.
 
