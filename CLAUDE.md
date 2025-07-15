@@ -117,31 +117,38 @@ docker-compose down
    - `nvd_client.py`: Queries NIST National Vulnerability Database (supports API key for higher rate limits)
    - `github_client.py`: Queries GitHub Advisory Database (supports token for higher rate limits)
 
-3. **Scanner** (`scanner.py`):
+3. **MCP Client** (`mcp_client.py`):
+   - Custom implementation instead of official MCP SDK for persistent connections
+   - Supports both stdio and HTTP transports (with SSE response parsing)
+   - Manages connection pooling for efficient passthrough operations
+   - See module docstring for detailed explanation of why SDK wasn't suitable
+
+4. **Scanner** (`scanner.py`):
    - Parses dependency files (requirements.txt, pyproject.toml, lock files)
    - Falls back to Python import scanning when no dependency file exists
    - Coordinates vulnerability checking across all clients
 
-4. **Secrets Scanner** (`secrets_scanner.py`): Uses detect-secrets to find exposed credentials
+5. **Secrets Scanner** (`secrets_scanner.py`): Uses detect-secrets to find exposed credentials
 
-5. **MCP Validator** (`mcp_validator.py`): Integrates mcp-scan for LLM self-validation of security posture
+6. **MCP Validator** (`mcp_validator.py`): Integrates mcp-scan for LLM self-validation of security posture
 
-6. **MCP Passthrough** (`mcp_passthrough.py`, `mcp_passthrough_with_approval.py`):
+7. **MCP Passthrough** (`mcp_passthrough.py`, `mcp_passthrough_with_approval.py`):
    - Provides secure proxying of MCP tool calls with risk assessment
    - **LLM-Based Risk Assessment**: Uses OpenAI/Anthropic APIs to intelligently assess risk
    - Pattern matching only used as fallback when LLM is unavailable
    - Supports approval workflows for high-risk operations
    - Logs all MCP interactions with full payloads (hourly rotation)
+   - **HTTP Transport Support**: Can connect to HTTP/SSE MCP servers (e.g., context7)
 
-7. **Docker Scanner** (`docker_scanner.py`):
+8. **Docker Scanner** (`docker_scanner.py`):
    - Analyzes Dockerfiles for Python package installations
    - Supports multiple package managers (pip, poetry, pipenv, conda)
    - Extracts package versions and checks for vulnerabilities
    - Identifies referenced dependency files
 
-8. **Rate Limiting** (`rate_limiter.py`): Handles API rate limits for external services
+9. **Rate Limiting** (`rate_limiter.py`): Handles API rate limits for external services
 
-9. **Safety Advisor** (`safety_advisor.py`):
+10. **Safety Advisor** (`safety_advisor.py`):
    - Pre-operation risk assessment tool for LLMs
    - Uses LLM-based assessment when API keys are available
    - Falls back to structured risk patterns when LLM unavailable
@@ -181,6 +188,20 @@ docker-compose down
 - Logs include full request/response payloads in JSON format
 - Hourly log rotation is enabled with timestamp-based filenames
 - Rotated logs follow pattern: `mcp_interactions.log.YYYYMMDD_HHMMSS.log`
+
+## Architectural Decisions
+
+### Why Custom MCP Client Instead of Official SDK?
+
+While the official Anthropic MCP SDK provides persistent connections and high-level abstractions, we need a custom implementation to handle specific compatibility issues:
+
+1. **HTTP/SSE Hybrid Servers**: Some MCP servers (like context7) return SSE-formatted responses to regular HTTP POST requests. The SDK's SSE client expects continuous streams and hangs, while the StreamableHTTP client can't parse SSE format.
+
+2. **Unified Transport Interface**: Our implementation provides a single interface that automatically handles stdio, HTTP, and HTTP+SSE responses without requiring different client types.
+
+3. **Passthrough Optimization**: Connection pooling and error handling optimized for the passthrough server use case.
+
+See the docstring in `mcp_client.py` for more details.
 
 ## Testing Approach
 
@@ -227,7 +248,14 @@ docker-compose down
   - Falls back to structured risk patterns and user guidance when no LLM is available
   - Provides comprehensive risk assessment with specific risks, recommendations, and approval requirements
   - Returns guidance: "you should evaluate based on your risk aversion whether this is a safe thing to do. as a first step, enumerate the risks involved, then assess each risk. finally, if you identify risks, ask the human if they are willing to accept this risk."
+- **Added HTTP/SSE transport support for MCP client**:
+  - MCP passthrough can now connect to HTTP-based MCP servers like context7
+  - Properly handles Server-Sent Events (SSE) responses
+  - Supports both traditional HTTP and SSE-based MCP servers
 
 ## Memories
 
 - No Docker for VulniCheck deployment. Remember that Docker is not used for deploying the VulniCheck service.
+- Always do testing and linting before commit
+
+```

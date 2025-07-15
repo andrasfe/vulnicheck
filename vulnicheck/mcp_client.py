@@ -3,6 +3,38 @@ MCP Client Implementation.
 
 This module provides a generic MCP client that can connect to any MCP server
 using various transport mechanisms (stdio, HTTP).
+
+Why Custom Implementation Instead of Official MCP SDK?
+----------------------------------------------------
+While the official Anthropic MCP SDK provides excellent functionality including
+persistent connections and high-level abstractions, we need a custom implementation
+for the following reasons:
+
+1. **HTTP Transport Compatibility**: Some MCP servers (like context7) respond to
+   regular HTTP POST requests with SSE-formatted responses (event/data format).
+   The SDK has separate SSE and StreamableHTTP clients, but neither handles this
+   correctly:
+   - SSE client expects a continuous event stream (hangs on single responses)
+   - StreamableHTTP client expects plain JSON responses (can't parse SSE format)
+
+2. **Unified Transport Interface**: Vulnicheck needs to dynamically connect to
+   servers with different transport types based on configuration. Our implementation
+   provides a single interface that automatically handles stdio, HTTP, and HTTP+SSE.
+
+3. **Connection Pool Management**: As a passthrough server, vulnicheck maintains
+   connections to multiple MCP servers simultaneously. While the SDK supports
+   persistent connections, our custom pool management is optimized for the
+   passthrough use case.
+
+4. **Error Recovery**: Our implementation includes specific error handling for
+   the quirks of various MCP servers we need to support.
+
+This custom implementation provides:
+- Unified MCPClient for managing persistent connections
+- Support for both stdio and HTTP transports (with automatic SSE parsing)
+- Single interface regardless of transport type
+- Connection pooling optimized for passthrough operations
+- Proper handling of servers that return SSE for regular HTTP requests
 """
 
 import asyncio
@@ -15,6 +47,7 @@ from asyncio.subprocess import Process
 from typing import Any
 from uuid import uuid4
 
+import httpx
 from pydantic import BaseModel
 
 from .mcp_config_cache import MCPServerConfig
@@ -327,8 +360,183 @@ class StdioTransport(MCPTransport):
             logger.info("Closed MCP server process")
 
 
+class HTTPTransport(MCPTransport):
+    """MCP transport over HTTP.
+
+    This transport handles HTTP-based MCP servers that may return responses in
+    different formats:
+    - Standard JSON responses
+    - SSE-formatted responses (Server-Sent Events format) for regular POST requests
+
+    The implementation handles:
+    - Proper Accept headers for content negotiation
+    - Parsing SSE-formatted responses (event/data format) from regular HTTP responses
+    - URL handling without trailing slashes (httpx quirk)
+    - Persistent connection via httpx.AsyncClient
+
+    Note: This is NOT an SSE streaming connection. Servers like context7 return
+    single HTTP responses that use SSE formatting (event: message, data: {...}).
+    The SDK's SSE client expects continuous event streams, while the StreamableHTTP
+    client expects plain JSON, so neither handles this hybrid format correctly.
+    """
+
+    def __init__(self, url: str) -> None:
+        # Remove trailing slash to avoid httpx adding another one
+        self.url = url.rstrip("/")
+        self.client: httpx.AsyncClient | None = None
+        self._closed = False
+
+    async def connect(self) -> None:
+        """Connect to an HTTP MCP server."""
+        if self.client is None:
+            # Don't use base_url to avoid trailing slash issues
+            self.client = httpx.AsyncClient(
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+                timeout=httpx.Timeout(30.0),
+            )
+            logger.info(f"Connected to HTTP MCP server at {self.url}")
+
+    def _parse_sse_response(self, text: str) -> dict[str, Any]:
+        """Parse Server-Sent Events formatted response to extract JSON data.
+
+        Some MCP servers (like context7) return responses in SSE format even for
+        regular HTTP POST requests. This is NOT a streaming SSE connection - it's
+        a single HTTP response that happens to use SSE formatting.
+
+        SSE format example:
+            event: message
+            data: {"jsonrpc": "2.0", "id": "123", "result": {...}}
+
+        We extract the JSON from the 'data:' line.
+        """
+        lines = text.strip().split('\n')
+        for line in lines:
+            if line.startswith('data:'):
+                # Extract JSON from data field
+                data_content = line[5:].strip()
+                if data_content:
+                    return dict(json.loads(data_content))
+        # If no data found, raise error
+        raise ValueError(f"No data found in SSE response: {text}")
+
+    async def request(
+        self, method: str, params: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """Send a request and wait for response."""
+        if self._closed or not self.client:
+            raise RuntimeError("Transport is closed")
+
+        # Build request message
+        request_id = str(uuid4())
+        message = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params if params is not None else {},
+        }
+
+        logger.debug(f"Sending HTTP request: {json.dumps(message)}")
+        logger.debug(f"URL: {self.url}")
+
+        try:
+            # Send POST request to the full URL
+            response = await self.client.post(
+                self.url,
+                json=message,
+            )
+            response.raise_for_status()
+
+            # Parse response - handle both JSON and SSE formats
+            content_type = response.headers.get("content-type", "")
+
+            if "text/event-stream" in content_type or response.text.startswith("event:"):
+                # Parse SSE response
+                result = self._parse_sse_response(response.text)
+            else:
+                # Parse regular JSON response
+                result = response.json()
+
+            logger.debug(f"Received HTTP response: {json.dumps(result)}")
+
+            if result.get("id") != request_id:
+                raise ValueError(f"Response ID mismatch: {result.get('id')} != {request_id}")
+
+            return dict(result)
+
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP request failed: {e}")
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32603,
+                    "message": f"HTTP request failed: {str(e)}",
+                },
+            }
+
+    async def notify(self, method: str, params: dict[str, Any] | None) -> None:
+        """Send a notification (no response expected)."""
+        if self._closed or not self.client:
+            raise RuntimeError("Transport is closed")
+
+        # Build notification message (no id for notifications)
+        message = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params if params is not None else {},
+        }
+
+        logger.debug(f"Sending HTTP notification: {json.dumps(message)}")
+
+        try:
+            # Send POST request (fire and forget)
+            response = await self.client.post(
+                self.url,
+                json=message,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP notification failed: {e}")
+
+    async def close(self) -> None:
+        """Close the transport."""
+        if self._closed:
+            return
+
+        self._closed = True
+
+        if self.client:
+            await self.client.aclose()
+            self.client = None
+            logger.info("Closed HTTP MCP client")
+
+
 class MCPClient:
-    """High-level MCP client."""
+    """High-level MCP client.
+
+    This client manages persistent connections to multiple MCP servers and provides
+    a unified interface for tool discovery and execution.
+
+    Architecture:
+    - Maintains a pool of persistent connections (self._connections)
+    - Dynamically selects transport based on server configuration
+    - Handles connection lifecycle (connect, initialize, close)
+    - Provides high-level methods for common operations
+
+    This design is necessary because:
+    1. Vulnicheck acts as a passthrough server that proxies requests to other MCP servers
+    2. Each incoming request may target a different MCP server
+    3. Creating a new connection for each request would be inefficient
+    4. The official SDK's context manager approach doesn't support connection pooling
+
+    Example usage:
+        client = MCPClient()
+        connection = await client.connect("server_name", config)
+        result = await connection.call_tool("tool_name", {"arg": "value"})
+    """
 
     def __init__(self) -> None:
         self._connections: dict[str, MCPConnection] = {}
@@ -338,16 +546,25 @@ class MCPClient:
         if server_name in self._connections:
             return self._connections[server_name]
 
-        if config.transport != "stdio":
+        # Create transport based on type
+        transport: MCPTransport
+        if config.transport == "stdio":
+            if not config.command:
+                raise ValueError("Stdio transport requires 'command' configuration")
+            transport = StdioTransport()
+            await transport.connect(
+                command=config.command, args=config.args, env=config.env, cwd=config.cwd
+            )
+        elif config.transport == "http":
+            if not config.url:
+                raise ValueError("HTTP transport requires 'url' configuration")
+            http_transport = HTTPTransport(config.url)
+            await http_transport.connect()
+            transport = http_transport
+        else:
             raise NotImplementedError(
                 f"Transport '{config.transport}' not yet implemented"
             )
-
-        # Create transport
-        transport = StdioTransport()
-        await transport.connect(
-            command=config.command, args=config.args, env=config.env, cwd=config.cwd
-        )
 
         # Create connection
         connection = MCPConnection(server_name, transport)

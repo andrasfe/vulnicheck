@@ -1305,6 +1305,7 @@ async def validate_mcp_security(
             # Standard paths for each agent
             agent_configs = {
                 "claude": [
+                    Path.cwd() / ".claude.json",  # Project-specific Claude config
                     home / ".claude.json",  # Claude Code primary config
                     home / ".claude" / "claude_desktop_config.json",
                     home / ".claude" / "settings.local.json",  # Claude Code settings

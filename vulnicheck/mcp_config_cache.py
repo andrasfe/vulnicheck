@@ -9,6 +9,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -20,14 +21,23 @@ logger = logging.getLogger(__name__)
 class MCPServerConfig(BaseModel):
     """Configuration for a single MCP server."""
 
-    command: str = Field(description="Command to execute")
+    command: str | None = Field(default=None, description="Command to execute")
     args: list[str] = Field(default_factory=list, description="Command arguments")
     env: dict[str, str] = Field(
         default_factory=dict, description="Environment variables"
     )
     cwd: str | None = Field(default=None, description="Working directory")
     transport: str = Field(default="stdio", description="Transport type (stdio, http)")
+    type: str | None = Field(default=None, description="Alias for transport (used in .claude.json)")
     url: str | None = Field(default=None, description="URL for HTTP transport")
+
+    def model_post_init(self, __context: Any) -> None:
+        """Handle type -> transport mapping."""
+        if self.type and not self.transport:
+            self.transport = self.type
+        elif self.type and self.transport == "stdio":
+            # If type is specified, it takes precedence
+            self.transport = self.type
 
 
 class MCPConfigCache:
