@@ -109,7 +109,7 @@ docker-compose down
 ### Core Components
 
 1. **MCP Server** (`vulnicheck/server.py`): FastMCP-based server exposing vulnerability checking tools via Model Context Protocol
-   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`, `assess_operation_safety`
+   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`, `assess_operation_safety`, `comprehensive_security_check`
    - Runs on port 3000 by default (configurable via MCP_PORT env var)
 
 2. **Vulnerability Clients**:
@@ -132,11 +132,12 @@ docker-compose down
 
 6. **MCP Validator** (`mcp_validator.py`): Integrates mcp-scan for LLM self-validation of security posture
 
-7. **MCP Passthrough** (`mcp_passthrough.py`, `mcp_passthrough_with_approval.py`):
+7. **MCP Passthrough** (`mcp_passthrough.py`, `mcp_passthrough_with_approval.py`, `mcp_passthrough_interactive.py`):
    - Provides secure proxying of MCP tool calls with risk assessment
    - **LLM-Based Risk Assessment**: Uses OpenAI/Anthropic APIs to intelligently assess risk
    - Pattern matching only used as fallback when LLM is unavailable
    - Supports approval workflows for high-risk operations
+   - **Interactive Approval Mode**: Enhanced version with true interactive approval flow where execution pauses until explicit approval/denial
    - Logs all MCP interactions with full payloads (hourly rotation)
    - **HTTP Transport Support**: Can connect to HTTP/SSE MCP servers (e.g., context7)
 
@@ -154,6 +155,15 @@ docker-compose down
    - Falls back to structured risk patterns when LLM unavailable
    - Provides risk levels, specific risks, recommendations, and approval requirements
    - Returns user-friendly guidance for risk evaluation when no LLM is available
+
+11. **Comprehensive Security Check** (`comprehensive_security_check.py`):
+   - Interactive security assessment tool that orchestrates all other security tools
+   - **Requires LLM**: Only available when OPENAI_API_KEY or ANTHROPIC_API_KEY is configured
+   - **Interactive Conversation**: Asks clarifying questions one at a time
+   - **Automatic Discovery**: Finds dependencies, Dockerfiles, MCP configs, and Python files
+   - **Selective Scanning**: Only runs scans confirmed by the user
+   - **LLM Analysis**: Uses AI to analyze findings, prioritize risks, and generate recommendations
+   - **Comprehensive Report**: Includes executive summary, risk scoring, and actionable recommendations
 
 ### Key Implementation Details
 
@@ -212,6 +222,7 @@ See the docstring in `mcp_client.py` for more details.
 - All tests run with `uv run` to ensure proper virtual environment usage
 - Makefile includes targets for different test categories (unit, integration, MCP, security, clients)
 - Type checking configured with mypy (strict for production code, relaxed for tests)
+- **Test Status**: 226 unit tests passing, 2 skipped (integration tests requiring API credentials)
 
 ## Important Notes
 
@@ -252,10 +263,21 @@ See the docstring in `mcp_client.py` for more details.
   - MCP passthrough can now connect to HTTP-based MCP servers like context7
   - Properly handles Server-Sent Events (SSE) responses
   - Supports both traditional HTTP and SSE-based MCP servers
+- **Enhanced Interactive Approval Mechanism**:
+  - Added `mcp_passthrough_interactive.py` for true interactive approval flows
+  - Operations pause until user explicitly approves/denies via separate tool calls
+  - Supports pre-approved operations to avoid repeated approval requests
+  - 5-minute expiration for pending operations
+- **Comprehensive Security Check Tool**:
+  - Added `comprehensive_security_check` tool for interactive, AI-powered security assessment
+  - Requires LLM configuration (OpenAI or Anthropic API key)
+  - Discovers project resources automatically and asks for confirmation
+  - Orchestrates all security tools (dependencies, Docker, secrets, MCP) based on user choices
+  - Uses LLM to analyze findings, prioritize risks, and generate actionable recommendations
+  - Produces executive summary with overall risk scoring
 
 ## Memories
 
 - No Docker for VulniCheck deployment. Remember that Docker is not used for deploying the VulniCheck service.
 - Always do testing and linting before commit
-
-```
+- Never add claude as co-author

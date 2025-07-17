@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .mcp_paths import MCP_CONFIG_PATHS
+
 logger = logging.getLogger(__name__)
 
 # Cache file location
@@ -23,60 +25,24 @@ CACHE_TTL_HOURS = 24  # Cache for 24 hours
 class AgentDetector:
     """Detects and caches the calling agent/assistant type."""
 
-    # Known agent types and their config patterns
+    # Build agent patterns from centralized MCP paths
     AGENT_PATTERNS = {
-        "claude": {
-            "display_name": "Claude",
-            "config_patterns": [
-                "~/.claude.json",  # Claude Code primary config
-                "~/.claude/claude_desktop_config.json",
-                "~/.claude/settings.local.json",
-                "~/Library/Application Support/Claude/claude_desktop_config.json",
-            ],
-        },
-        "cline": {
-            "display_name": "Cline",
-            "config_patterns": [
-                "~/.cursor/mcp.json",
-                "~/.vscode/mcp.json",
-            ],
-        },
-        "cursor": {
-            "display_name": "Cursor",
-            "config_patterns": [
-                "~/.cursor/config.json",
-                "~/Library/Application Support/Cursor/User/globalStorage/saoud.mcp-manager/config.json",
-            ],
-        },
-        "vscode": {
-            "display_name": "VS Code",
-            "config_patterns": [
-                "~/.vscode/extensions/saoud.mcp-manager-*/config.json",
-                "~/Library/Application Support/Code/User/globalStorage/saoud.mcp-manager/config.json",
-            ],
-        },
-        "copilot": {
-            "display_name": "GitHub Copilot",
-            "config_patterns": [
-                "~/.vscode/extensions/github.copilot-*/config.json",
-                "~/Library/Application Support/Code/User/globalStorage/github.copilot/config.json",
-            ],
-        },
-        "windsurf": {
-            "display_name": "Windsurf",
-            "config_patterns": [
-                "~/.windsurf/config.json",
-                "~/Library/Application Support/Windsurf/config.json",
-            ],
-        },
-        "continue": {
-            "display_name": "Continue",
-            "config_patterns": [
-                "~/.continue/config.json",
-                "~/.continue/.continuerc.json",
-            ],
-        },
+        agent_name: {
+            "display_name": agent_name.title(),
+            "config_patterns": [str(path).replace(str(Path.home()), "~") for path in paths],
+        }
+        for agent_name, paths in MCP_CONFIG_PATHS.items()
     }
+
+    # Override display names for specific agents
+    if "claude" in AGENT_PATTERNS:
+        AGENT_PATTERNS["claude"]["display_name"] = "Claude"
+    if "cline" in AGENT_PATTERNS:
+        AGENT_PATTERNS["cline"]["display_name"] = "Cline"
+    if "vscode" in AGENT_PATTERNS:
+        AGENT_PATTERNS["vscode"]["display_name"] = "VS Code"
+    if "copilot" in AGENT_PATTERNS:
+        AGENT_PATTERNS["copilot"]["display_name"] = "GitHub Copilot"
 
     def __init__(self) -> None:
         """Initialize the agent detector."""

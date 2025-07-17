@@ -12,6 +12,22 @@ By using this software and its associated data, you acknowledge and agree to ass
 
 This software incorporates or references data from publicly available sources, including the National Vulnerability Database (NVD), Common Weakness Enumeration (CWE), and Open Source Vulnerabilities (OSV), which are provided under their respective public licenses and disclaimers.
 
+## Quick Security Check
+
+The easiest way to use VulniCheck is with the **comprehensive_security_check** tool, which provides an interactive, AI-powered security assessment of your entire project:
+
+```
+"Run a comprehensive security check on my project"
+```
+
+This tool will:
+- Automatically discover your project structure (dependencies, Dockerfiles, MCP configs)
+- Ask you what to scan (you can choose specific areas or scan everything)
+- Run all relevant security tools based on your choices
+- Provide an AI-analyzed report with prioritized recommendations
+
+**Note:** Requires OPENAI_API_KEY or ANTHROPIC_API_KEY to be configured.
+
 ## Features
 
 - **Real-time vulnerability checking** for Python packages using OSV.dev, NVD, and GitHub Advisory Database APIs

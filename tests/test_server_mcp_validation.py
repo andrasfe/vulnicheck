@@ -150,6 +150,7 @@ async def test_validate_mcp_security_no_config_found():
     with (
         patch("vulnicheck.server.mcp_validator", mock_validator),
         patch("vulnicheck.server._ensure_clients_initialized"),
+        patch("vulnicheck.server.get_mcp_paths_for_agent", return_value=[]),
         tempfile.TemporaryDirectory() as temp_dir,
         patch("vulnicheck.server.Path.home", return_value=Path(temp_dir)),
         patch("vulnicheck.server.Path.cwd", return_value=Path(temp_dir)),

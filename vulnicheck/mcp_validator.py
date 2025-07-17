@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .mcp_paths import find_existing_mcp_configs
+
 logger = logging.getLogger("vulnicheck.mcp_validator")
 
 # Embedded policy content for mcp_scan - defined before any imports
@@ -200,48 +202,21 @@ class MCPValidator:
         """
         config_paths = []
 
-        # Common MCP configuration locations
-        home = Path.home()
+        # Use centralized MCP path configuration
+        existing_configs = find_existing_mcp_configs()
 
-        # Claude Desktop
-        claude_configs = [
-            home
-            / "Library"
-            / "Application Support"
-            / "Claude"
-            / "claude_desktop_config.json",
-            home / ".config" / "claude" / "claude_desktop_config.json",
-            home / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",
-        ]
-
-        # Cursor
-        cursor_configs = [
-            home / ".cursor" / "mcp" / "config.json",
-            home / "Library" / "Application Support" / "Cursor" / "mcp" / "config.json",
-        ]
-
-        # Windsurf
-        windsurf_configs = [
-            home / ".windsurf" / "mcp" / "config.json",
-            home
-            / "Library"
-            / "Application Support"
-            / "Windsurf"
-            / "mcp"
-            / "config.json",
-        ]
-
-        # Check all possible locations
-        for config_path in claude_configs + cursor_configs + windsurf_configs:
-            if config_path.exists():
-                config_paths.append(str(config_path))
-                logger.info(f"Found MCP config: {config_path}")
+        # Flatten all found config paths
+        for agent, paths in existing_configs.items():
+            for path in paths:
+                config_paths.append(str(path))
+                logger.info(f"Found MCP config for {agent}: {path}")
 
         # Also check environment variable
         if custom_path := os.environ.get("MCP_CONFIG_PATH"):
             custom_path_obj = Path(custom_path)
             if custom_path_obj.exists():
                 config_paths.append(str(custom_path_obj))
+                logger.info(f"Found MCP config from env: {custom_path_obj}")
 
         return config_paths
 

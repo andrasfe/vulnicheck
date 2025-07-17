@@ -10,6 +10,7 @@ from typing import Annotated, Any, cast
 from fastmcp import FastMCP
 from pydantic import Field
 
+from .comprehensive_security_check import ComprehensiveSecurityCheck
 from .docker_scanner import DockerScanner
 from .github_client import GitHubClient
 from .mcp_passthrough_interactive import (
@@ -19,6 +20,7 @@ from .mcp_passthrough_interactive import (
 from .mcp_passthrough_with_approval import (
     mcp_passthrough_tool_with_approval as unified_mcp_passthrough,
 )
+from .mcp_paths import get_mcp_paths_for_agent
 from .mcp_validator import MCPValidator
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
@@ -46,6 +48,7 @@ scanner = None
 secrets_scanner = None
 mcp_validator = None
 docker_scanner = None
+comprehensive_checker = None
 
 
 def _ensure_clients_initialized() -> None:
@@ -1302,76 +1305,22 @@ async def validate_mcp_security(
             # Custom path provided
             config_paths = [Path(config_path)]
         else:
-            # Standard paths for each agent
-            agent_configs = {
-                "claude": [
-                    Path.cwd() / ".claude.json",  # Project-specific Claude config
-                    home / ".claude.json",  # Claude Code primary config
-                    home / ".claude" / "claude_desktop_config.json",
-                    home / ".claude" / "settings.local.json",  # Claude Code settings
-                    home
-                    / "Library"
-                    / "Application Support"
-                    / "Claude"
-                    / "claude_desktop_config.json",
-                ],
-                "cline": [
-                    # Cline settings need to be searched recursively
-                ],
-                "copilot": [
-                    # GitHub Copilot settings need to be searched recursively
-                ],
-                "github copilot": [
-                    # GitHub Copilot settings need to be searched recursively
-                ],
-                "cursor": [
-                    home / ".cursor" / "mcp.json",  # Primary Cursor MCP config
-                    home / ".cursor" / "config.json",
-                    home
-                    / ".cursor"
-                    / "User"
-                    / "globalStorage"
-                    / "saoud.mcp-manager"
-                    / "config.json",
-                    home
-                    / "Library"
-                    / "Application Support"
-                    / "Cursor"
-                    / "User"
-                    / "globalStorage"
-                    / "saoud.mcp-manager"
-                    / "config.json",
-                    Path.cwd() / ".cursorrules",  # Project-specific
-                ],
-                "vscode": [
-                    home
-                    / ".vscode"
-                    / "extensions"
-                    / "saoud.mcp-manager-*"
-                    / "config.json",
-                    home
-                    / "Library"
-                    / "Application Support"
-                    / "Code"
-                    / "User"
-                    / "globalStorage"
-                    / "saoud.mcp-manager"
-                    / "config.json",
-                    Path.cwd() / ".vscode" / "settings.json",  # Workspace settings
-                ],
-                "windsurf": [
-                    home / ".windsurf" / "config.json",
-                    home
-                    / "Library"
-                    / "Application Support"
-                    / "Windsurf"
-                    / "config.json",
-                ],
-                "continue": [
-                    home / ".continue" / "config.json",
-                    home / ".continue" / ".continuerc.json",
-                ],
-            }
+            # Get paths from centralized configuration
+            agent_configs = {}
+
+            # Use centralized paths for most agents
+            for agent in ["claude", "cline", "cursor", "vscode", "windsurf", "continue", "copilot"]:
+                agent_configs[agent] = get_mcp_paths_for_agent(agent)
+
+            # Add project-specific paths
+            agent_configs["claude"].insert(0, Path.cwd() / ".claude.json")
+            agent_configs["cursor"].append(Path.cwd() / ".cursorrules")
+
+            # Handle aliases
+            agent_configs["github copilot"] = agent_configs["copilot"]
+
+            # Add workspace settings for vscode
+            agent_configs["vscode"].append(Path.cwd() / ".vscode" / "settings.json")
 
             if agent_name.lower() not in agent_configs:
                 return f"⚠️  **Error**: Unknown agent '{agent_name}'. Valid agents: {', '.join(sorted(agent_configs.keys()))}"
@@ -2070,6 +2019,307 @@ You should evaluate based on your risk aversion whether this is a safe thing to 
 **Operation details**:
 - Type: {operation_type}
 - Context: {context or 'No context provided'}"""
+
+
+# Store active comprehensive security check sessions
+_comprehensive_sessions: dict[int, ComprehensiveSecurityCheck] = {}
+
+
+@mcp.tool
+async def comprehensive_security_check(
+    action: Annotated[
+        str,
+        Field(
+            description="Action to perform: 'start' to begin a new check, 'continue' to continue an interactive session"
+        ),
+    ],
+    project_path: Annotated[
+        str | None,
+        Field(
+            description="Project path to check (only for 'start' action). Defaults to current directory.",
+            default=None,
+        ),
+    ] = None,
+    response: Annotated[
+        str | None,
+        Field(
+            description="User response to continue the conversation (only for 'continue' action)",
+            default=None,
+        ),
+    ] = None,
+    session_id: Annotated[
+        int | None,
+        Field(
+            description="Session ID from previous interaction (only for 'continue' action)",
+            default=None,
+        ),
+    ] = None,
+) -> str:
+    """Comprehensive interactive security check (requires LLM configuration).
+
+    This tool performs a thorough security assessment by:
+    1. Discovering available resources (dependencies, Dockerfiles, MCP configs)
+    2. Asking clarifying questions one at a time
+    3. Running relevant security scans based on your confirmations
+    4. Using LLM to analyze and synthesize all findings
+    5. Generating a comprehensive report with risk scoring and recommendations
+
+    REQUIRES: OPENAI_API_KEY or ANTHROPIC_API_KEY to be configured.
+
+    Usage:
+    - First call: action='start' with optional project_path
+    - Subsequent calls: action='continue' with response and session_id
+
+    The tool will guide you through an interactive conversation to understand
+    what security checks to perform, then execute them comprehensively.
+
+    Includes checks for:
+    - Dependency vulnerabilities
+    - Dockerfile security issues
+    - Exposed secrets and credentials
+    - MCP configuration security
+    - Overall security posture assessment
+    """
+    global comprehensive_checker
+
+    # Initialize comprehensive checker if needed
+    if comprehensive_checker is None:
+        comprehensive_checker = ComprehensiveSecurityCheck()
+
+    # Check if LLM is configured
+    if not comprehensive_checker.has_llm_configured():
+        return """❌ **No LLM Configured**
+
+This tool requires an LLM for comprehensive analysis and recommendations.
+
+Please configure one of:
+- `OPENAI_API_KEY` - For OpenAI models
+- `ANTHROPIC_API_KEY` - For Anthropic models
+
+Without an LLM, you can still use individual security tools:
+- `scan_dependencies` - Check dependency vulnerabilities
+- `scan_dockerfile` - Analyze Dockerfile security
+- `scan_for_secrets` - Find exposed credentials
+- `validate_mcp_security` - Check MCP configuration
+"""
+
+    try:
+        if action == "start":
+            # Start new session
+            checker = ComprehensiveSecurityCheck()
+            result = await checker.start_conversation(project_path)
+
+            # Store session if successful
+            if "conversation_id" in result:
+                _comprehensive_sessions[result["conversation_id"]] = checker
+
+            # Format response
+            lines = ["## 🔒 Comprehensive Security Check Started", ""]
+
+            if "discovery" in result:
+                lines.extend([
+                    "### Discovered Resources:",
+                    f"- Dependency files: {len(result['discovery']['dependency_files'])}",
+                    f"- Dockerfiles: {len(result['discovery']['dockerfiles'])}",
+                    f"- Python files: {result['discovery']['python_files_count']}",
+                    f"- Git repository: {'Yes' if result['discovery']['has_git'] else 'No'}",
+                    f"- MCP config: {'Possible' if result['discovery']['has_mcp_config'] else 'No'}",
+                    ""
+                ])
+
+            lines.extend([
+                "### " + result.get("question", ""),
+                "",
+                f"*Session ID: {result.get('conversation_id', 'N/A')}*"
+            ])
+
+            return "\n".join(lines)
+
+        elif action == "continue":
+            if not response:
+                return "❌ Please provide a response to continue the conversation."
+
+            if session_id is None:
+                return "❌ Please provide the session_id from the previous interaction."
+
+            # Get session
+            if session_id not in _comprehensive_sessions:
+                return f"❌ No active session found with ID: {session_id}"
+
+            checker = _comprehensive_sessions[session_id]
+
+            # Continue conversation
+            result = await checker.continue_conversation(response, session_id)
+
+            # Handle different response types
+            if result["status"] == "question":
+                # Format next question
+                lines = [
+                    f"### {result['question']}",
+                    "",
+                    f"*Session ID: {session_id}*"
+                ]
+                return "\n".join(lines)
+
+            elif result["status"] == "executing":
+                # Execute scans
+                lines = [
+                    "## 🔍 Executing Security Scans...",
+                    "",
+                    "Running the following scans:"
+                ]
+
+                for scan in result.get("scans_to_run", []):
+                    lines.append(f"- ✓ {scan.replace('_', ' ').title()}")
+
+                lines.extend(["", "This may take a moment..."])
+
+                # Create tool mapping for execution
+                scan_tools = {
+                    "scan_dependencies": scan_dependencies,
+                    "scan_dockerfile": scan_dockerfile,
+                    "scan_for_secrets": scan_for_secrets,
+                    "validate_mcp_security": validate_mcp_security,
+                }
+
+                # Execute scans and get final report
+                final_report = await checker.execute_scans(scan_tools)
+
+                # Remove session as it's complete
+                del _comprehensive_sessions[session_id]
+
+                # Format comprehensive report
+                return _format_comprehensive_report(final_report)
+
+            elif result["status"] == "error":
+                return f"❌ Error: {result.get('error', 'Unknown error')}"
+
+            else:
+                return f"Unexpected status: {result.get('status', 'unknown')}"
+
+        else:
+            return "❌ Invalid action. Use 'start' to begin or 'continue' to proceed with an existing session."
+
+    except Exception as e:
+        logger.error(f"Error in comprehensive security check: {e}")
+        return f"❌ **Error**: {str(e)}"
+
+
+def _format_comprehensive_report(report: dict[str, Any]) -> str:
+    """Format the comprehensive security report for display."""
+    lines = ["# 🔒 Comprehensive Security Report", ""]
+
+    # Executive Summary
+    summary = report.get("executive_summary", {})
+    risk_emoji = {
+        "critical": "🔴",
+        "high": "🟠",
+        "medium": "🟡",
+        "low": "🟢",
+        "info": "🔵"
+    }
+
+    risk = summary.get("overall_risk", "unknown")
+    lines.extend([
+        "## Executive Summary",
+        "",
+        f"**Overall Risk Level**: {risk_emoji.get(risk, '❓')} **{risk.upper()}**",
+        f"**Total Findings**: {summary.get('total_findings', 0)}",
+        f"**Scan Duration**: {summary.get('scan_duration_seconds', 0):.1f} seconds",
+        f"**Project**: `{summary.get('project_path', 'unknown')}`",
+        ""
+    ])
+
+    # Analysis and Recommendations
+    analysis = report.get("analysis", {})
+    if analysis:
+        lines.extend([
+            "## Risk Analysis",
+            "",
+            analysis.get("analysis", "No analysis available"),
+            ""
+        ])
+
+        if "recommendations" in analysis and analysis["recommendations"]:
+            lines.extend([
+                "## 🎯 Priority Recommendations",
+                ""
+            ])
+            for i, rec in enumerate(analysis["recommendations"][:5], 1):
+                lines.append(f"{i}. {rec}")
+            lines.append("")
+
+    # Detailed Findings by Category
+    findings = report.get("detailed_findings", {})
+    if findings:
+        lines.extend(["## Detailed Findings", ""])
+
+        # Group findings by type
+        vuln_count = 0
+        secret_count = 0
+        mcp_count = 0
+        docker_count = 0
+
+        for scan_type, result in findings.items():
+            if isinstance(result, dict) and "error" not in result:
+                if "dependencies" in scan_type and "summary" in result:
+                    summary = result["summary"]
+                    vuln_count += summary.get("total_vulnerabilities", 0)
+                    if summary.get("total_vulnerabilities", 0) > 0:
+                        lines.extend([
+                            f"### 📦 Dependency Vulnerabilities ({scan_type.split('_')[1]})",
+                            f"- Packages scanned: {summary.get('packages_scanned', 0)}",
+                            f"- Vulnerable packages: {summary.get('vulnerable_packages', 0)}",
+                            f"- Total vulnerabilities: {summary.get('total_vulnerabilities', 0)}",
+                            ""
+                        ])
+
+                elif "dockerfile" in scan_type and "vulnerable_packages" in result:
+                    docker_count += len(result.get("vulnerable_packages", []))
+                    if result.get("vulnerable_packages"):
+                        lines.extend([
+                            f"### 🐳 Dockerfile Vulnerabilities ({scan_type.split('_')[1]})",
+                            f"- Vulnerable packages found: {len(result['vulnerable_packages'])}",
+                            ""
+                        ])
+
+                elif scan_type == "secrets" and "summary" in result:
+                    secret_count = result["summary"].get("total_secrets", 0)
+                    if secret_count > 0:
+                        lines.extend([
+                            "### 🔑 Exposed Secrets",
+                            f"- Total secrets found: {secret_count}",
+                            f"- Files with secrets: {result['summary'].get('files_with_secrets', 0)}",
+                            ""
+                        ])
+
+                elif scan_type == "mcp_security" and "summary" in result:
+                    findings_list = result.get("findings", [])
+                    mcp_count = len(findings_list)
+                    if mcp_count > 0:
+                        lines.extend([
+                            "### 🛡️ MCP Security Issues",
+                            f"- Issues found: {mcp_count}",
+                            ""
+                        ])
+
+    # Summary Statistics
+    lines.extend([
+        "## Summary Statistics",
+        "",
+        f"- 📊 **Dependency Vulnerabilities**: {vuln_count}",
+        f"- 🔑 **Exposed Secrets**: {secret_count}",
+        f"- 🐳 **Docker Vulnerabilities**: {docker_count}",
+        f"- 🛡️ **MCP Security Issues**: {mcp_count}",
+        "",
+        "---",
+        "",
+        "*For detailed remediation steps for each finding, review the individual tool outputs above.*",
+        "",
+        f"*Report generated at: {report.get('timestamp', 'unknown')}*"
+    ])
+
+    return "\n".join(lines)
 
 
 def main() -> None:
