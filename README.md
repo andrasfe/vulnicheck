@@ -1,6 +1,6 @@
 # VulniCheck MCP Server
 
-A Python-based MCP (Model Context Protocol) server that provides real-time security advice about Python modules by querying multiple authoritative vulnerability databases including OSV.dev, NVD (National Vulnerability Database), and GitHub Advisory Database.
+A Python-based MCP (Model Context Protocol) server that provides real-time security advice about Python modules by querying multiple authoritative vulnerability databases including OSV.dev, NVD (National Vulnerability Database), GitHub Advisory Database, CIRCL Vulnerability-Lookup, and Safety DB.
 
 ## DISCLAIMER
 
@@ -30,8 +30,13 @@ This tool will:
 
 ## Features
 
-- **Real-time vulnerability checking** for Python packages using OSV.dev, NVD, and GitHub Advisory Database APIs
-- **Comprehensive coverage** by querying multiple authoritative vulnerability databases
+- **Real-time vulnerability checking** for Python packages using multiple databases:
+  - OSV.dev (includes PyPI Advisory Database)
+  - NVD (National Vulnerability Database)
+  - GitHub Advisory Database
+  - CIRCL Vulnerability-Lookup (aggregates multiple sources)
+  - Safety DB (Python-specific vulnerabilities)
+- **Comprehensive coverage** by querying 5+ authoritative vulnerability databases
 - **Dependency scanning** for `requirements.txt`, `pyproject.toml`, and lock files
 - **Python import scanning** - automatically discovers dependencies from Python source files when no requirements file exists
 - **Secrets detection** - scans files and directories for exposed API keys, passwords, and credentials using detect-secrets
@@ -587,6 +592,7 @@ VULNICHECK_LOG_CONSOLE=false
 **OSV.dev**
 - No authentication required
 - Free and open API
+- Includes PyPI Advisory Database
 
 **NVD (National Vulnerability Database)**
 - Without API key: 5 requests per 30 seconds
@@ -597,6 +603,16 @@ VULNICHECK_LOG_CONSOLE=false
 - Without token: 60 requests per hour
 - With token: 5,000 requests per hour
 - Get a free GitHub token at: https://github.com/settings/tokens
+
+**CIRCL Vulnerability-Lookup**
+- No authentication required
+- Free public API
+- Aggregates data from multiple sources
+
+**Safety DB**
+- No authentication required
+- Open source database on GitHub
+- Updated monthly
 
 **Note**: The server automatically handles rate limiting to prevent hitting API limits.
 
@@ -728,13 +744,16 @@ If you encounter rate limiting errors:
 
 ## Recent Improvements (2025)
 
+- **Added two new vulnerability databases** for comprehensive coverage:
+  - CIRCL Vulnerability-Lookup API (aggregates data from multiple sources)
+  - Safety DB (Python-specific vulnerabilities not always in CVE databases)
 - Fixed integration tests to properly skip when API credentials are unavailable
 - Updated Makefile to include all test files and proper linting coverage
 - Resolved all type annotation and mypy issues
 - Added comprehensive MCP interaction logging with full payload capture
 - Implemented hourly log rotation for MCP logs
 - Fixed test order dependencies that were causing intermittent failures
-- All tests now pass (234 passed, 12 skipped) with clean linting
+- All tests now pass (272 unit tests, 2 skipped) with clean linting
 - Added pre-commit hooks that run `make lint` and `make test-unit` before commits
 - Added Docker vulnerability scanner tool for analyzing Dockerfiles
 - Enhanced MCP passthrough with risk-based approval workflows

@@ -10,6 +10,7 @@ from typing import Annotated, Any, cast
 from fastmcp import FastMCP
 from pydantic import Field
 
+from .circl_client import CIRCLClient
 from .comprehensive_security_check import ComprehensiveSecurityCheck
 from .docker_scanner import DockerScanner
 from .github_client import GitHubClient
@@ -25,6 +26,7 @@ from .mcp_validator import MCPValidator
 from .nvd_client import NVDClient
 from .osv_client import OSVClient
 from .safety_advisor import SafetyAdvisor
+from .safety_db_client import SafetyDBClient
 from .scanner import DependencyScanner
 from .secrets_scanner import SecretsScanner
 
@@ -44,6 +46,8 @@ mcp: FastMCP = FastMCP("vulnicheck-mcp")
 osv_client = None
 nvd_client = None
 github_client = None
+circl_client = None
+safety_db_client = None
 scanner = None
 secrets_scanner = None
 mcp_validator = None
@@ -57,6 +61,8 @@ def _ensure_clients_initialized() -> None:
         osv_client, \
         nvd_client, \
         github_client, \
+        circl_client, \
+        safety_db_client, \
         scanner, \
         secrets_scanner, \
         mcp_validator, \
@@ -65,7 +71,9 @@ def _ensure_clients_initialized() -> None:
         osv_client = OSVClient()
         nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
         github_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN"))
-        scanner = DependencyScanner(osv_client, nvd_client, github_client)
+        circl_client = CIRCLClient()
+        safety_db_client = SafetyDBClient()
+        scanner = DependencyScanner(osv_client, nvd_client, github_client, circl_client, safety_db_client)
         secrets_scanner = SecretsScanner()
         mcp_validator = MCPValidator(local_only=True)
         docker_scanner = DockerScanner(scanner)

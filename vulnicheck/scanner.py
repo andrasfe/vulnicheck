@@ -14,11 +14,14 @@ logger = logging.getLogger(__name__)
 
 class DependencyScanner:
     def __init__(
-        self, osv_client: Any, nvd_client: Any, github_client: Any = None
+        self, osv_client: Any, nvd_client: Any, github_client: Any = None,
+        circl_client: Any = None, safety_db_client: Any = None
     ) -> None:
         self.osv_client = osv_client
         self.nvd_client = nvd_client
         self.github_client = github_client
+        self.circl_client = circl_client
+        self.safety_db_client = safety_db_client
 
     async def scan_file(self, file_path: str) -> dict[str, list[Any]]:
         """Scan a dependency file for vulnerabilities."""
@@ -253,6 +256,24 @@ class DependencyScanner:
                 # Silently ignore GitHub API errors
                 pass
 
+        # Check CIRCL Vulnerability-Lookup if available
+        if self.circl_client:
+            try:
+                circl_vulns = await self.circl_client.check_package(name)
+                vulns.extend(circl_vulns)
+            except Exception:
+                # Silently ignore CIRCL API errors
+                pass
+
+        # Check Safety DB if available
+        if self.safety_db_client:
+            try:
+                safety_vulns = await self.safety_db_client.check_package(name)
+                vulns.extend(safety_vulns)
+            except Exception:
+                # Silently ignore Safety DB errors
+                pass
+
         if not version_spec or not vulns:
             return list(vulns)
 
@@ -458,6 +479,24 @@ class DependencyScanner:
                 vulns.extend(github_advisories)
             except Exception:
                 # Silently ignore GitHub API errors
+                pass
+
+        # Check CIRCL Vulnerability-Lookup if available
+        if self.circl_client:
+            try:
+                circl_vulns = await self.circl_client.check_package(name)
+                vulns.extend(circl_vulns)
+            except Exception:
+                # Silently ignore CIRCL API errors
+                pass
+
+        # Check Safety DB if available
+        if self.safety_db_client:
+            try:
+                safety_vulns = await self.safety_db_client.check_package(name)
+                vulns.extend(safety_vulns)
+            except Exception:
+                # Silently ignore Safety DB errors
                 pass
 
         # Filter to only include vulnerabilities affecting the latest version
