@@ -18,6 +18,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .agent_detector import detect_agent
+from .conversation_storage import ConversationStorage
 from .dangerous_commands_risk_config import (
     RiskLevel,
     get_dangerous_commands_risk_config,
@@ -106,6 +107,10 @@ class MCPPassthroughWithApproval:
         self.approval_callback = approval_callback
         self.auto_approve_low_risk = auto_approve_low_risk
 
+        # Conversation storage will be initialized on first use
+        self._conversation_storage: ConversationStorage | None = None
+        self._active_conversations: dict[str, str] = {}  # server -> conversation_id
+
         # Track pending approvals
         self.pending_approvals: dict[str, ApprovalRequest] = {}
 
@@ -151,6 +156,34 @@ Risk Assessment:
 This operation requires approval before proceeding.
 """
 
+    def _get_conversation_storage(self) -> ConversationStorage:
+        """Get or create conversation storage on demand."""
+        if self._conversation_storage is None:
+            self._conversation_storage = ConversationStorage()
+        return self._conversation_storage
+
+    def _get_or_create_conversation(self, server_name: str) -> str:
+        """Get or create a conversation for a server."""
+        if server_name in self._active_conversations:
+            return self._active_conversations[server_name]
+
+        storage = self._get_conversation_storage()
+
+        # Try to get an active conversation
+        conv = storage.get_active_conversation(self.agent_name, server_name)
+        if conv:
+            self._active_conversations[server_name] = conv.id
+            return conv.id
+
+        # Create a new conversation
+        conv = storage.start_conversation(
+            client=self.agent_name,
+            server=server_name,
+            metadata={"passthrough_mode": "with_approval"}
+        )
+        self._active_conversations[server_name] = conv.id
+        return conv.id
+
     async def execute_with_security(
         self,
         server_name: str,
@@ -161,6 +194,19 @@ This operation requires approval before proceeding.
         """
         Execute an MCP tool call with enhanced security checks and approval flow.
         """
+        # Get or create conversation
+        conversation_id = self._get_or_create_conversation(server_name)
+        storage = self._get_conversation_storage()
+
+        # Log request to conversation
+        storage.add_request(
+            conversation_id=conversation_id,
+            client=self.agent_name,
+            server=server_name,
+            tool=tool_name,
+            parameters=parameters
+        )
+
         # Log the incoming request with risk assessment
         interaction_logger.info(
             "MCP_REQUEST_WITH_APPROVAL",
@@ -240,9 +286,19 @@ This operation requires approval before proceeding.
                                 "assessment_method": "llm_risk_assessor",
                             }
                         )
-                        return self._create_blocked_response(
+                        response = self._create_blocked_response(
                             blocked_risk_assessment, f"LLM security assessment blocked operation: {llm_explanation}"
                         )
+                        # Log response to conversation
+                        storage.add_response(
+                            conversation_id=conversation_id,
+                            client=self.agent_name,
+                            server=server_name,
+                            tool=tool_name,
+                            result=response,
+                            risk_assessment=blocked_risk_assessment
+                        )
+                        return response
 
                     # For non-BLOCKED risks from LLM, continue with approval flow
                     # This handles HIGH_RISK, REQUIRES_APPROVAL, etc.
@@ -292,7 +348,16 @@ This operation requires approval before proceeding.
                         }
                     )
                     # Execute the operation
-                    return await self._execute_operation(server_name, tool_name, parameters, None)
+                    response = await self._execute_operation(server_name, tool_name, parameters, None)
+                    # Log response to conversation
+                    storage.add_response(
+                        conversation_id=conversation_id,
+                        client=self.agent_name,
+                        server=server_name,
+                        tool=tool_name,
+                        result=response
+                    )
+                    return response
 
             except Exception as e:
                 # LLM assessment failed - log and fall back to pattern matching
@@ -370,9 +435,19 @@ This operation requires approval before proceeding.
                         "assessment_method": "regex_pattern_matching",
                     }
                 )
-                    return self._create_blocked_response(
+                    response = self._create_blocked_response(
                         risk_assessment, f"Operation blocked: {pattern.description}"
                     )
+                    # Log response to conversation
+                    storage.add_response(
+                        conversation_id=conversation_id,
+                        client=self.agent_name,
+                        server=server_name,
+                        tool=tool_name,
+                        result=response,
+                        risk_assessment=risk_assessment
+                    )
+                    return response
 
                 elif (
                     pattern.risk_level == RiskLevel.LOW_RISK and self.auto_approve_low_risk
@@ -392,9 +467,19 @@ This operation requires approval before proceeding.
                             "assessment_method": "regex_pattern_matching",
                         }
                     )
-                    return await self._execute_operation(
+                    response = await self._execute_operation(
                         server_name, tool_name, parameters, risk_assessment
                     )
+                    # Log response to conversation
+                    storage.add_response(
+                        conversation_id=conversation_id,
+                        client=self.agent_name,
+                        server=server_name,
+                        tool=tool_name,
+                        result=response,
+                        risk_assessment=risk_assessment
+                    )
+                    return response
 
                 elif pattern.risk_level in [
                     RiskLevel.HIGH_RISK,
@@ -436,9 +521,19 @@ This operation requires approval before proceeding.
                                     "request_id": approval_response.request_id,
                                 }
                             )
-                            return await self._execute_operation(
+                            response = await self._execute_operation(
                                 server_name, tool_name, parameters, risk_assessment
                             )
+                            # Log response to conversation
+                            storage.add_response(
+                                conversation_id=conversation_id,
+                                client=self.agent_name,
+                                server=server_name,
+                                tool=tool_name,
+                                result=response,
+                                risk_assessment=risk_assessment
+                            )
+                            return response
                         else:
                             interaction_logger.warning(
                                 "MCP_SECURITY_DENIED",
@@ -454,11 +549,21 @@ This operation requires approval before proceeding.
                                     "alternative": approval_response.suggested_alternative,
                                 }
                             )
-                            return self._create_denied_response(
+                            response = self._create_denied_response(
                                 risk_assessment,
                                 approval_response.reason,
                                 approval_response.suggested_alternative,
                             )
+                            # Log response to conversation
+                            storage.add_response(
+                                conversation_id=conversation_id,
+                                client=self.agent_name,
+                                server=server_name,
+                                tool=tool_name,
+                                result=response,
+                                risk_assessment=risk_assessment
+                            )
+                            return response
                     else:
                         # No approval callback, must block
                         interaction_logger.warning(
@@ -473,10 +578,20 @@ This operation requires approval before proceeding.
                                 "reason": "Operation requires approval but no approval mechanism configured",
                             }
                         )
-                        return self._create_blocked_response(
+                        response = self._create_blocked_response(
                             risk_assessment,
                             "Operation requires approval but no approval mechanism configured",
                         )
+                        # Log response to conversation
+                        storage.add_response(
+                            conversation_id=conversation_id,
+                            client=self.agent_name,
+                            server=server_name,
+                            tool=tool_name,
+                            result=response,
+                            risk_assessment=risk_assessment
+                        )
+                        return response
 
         # Handle approval flow if we have a risk assessment (from either LLM or pattern)
         if risk_assessment:
@@ -498,9 +613,19 @@ This operation requires approval before proceeding.
                         "assessment_method": risk_assessment.get("assessment_method", "unknown"),
                     }
                 )
-                return await self._execute_operation(
+                response = await self._execute_operation(
                     server_name, tool_name, parameters, risk_assessment
                 )
+                # Log response to conversation
+                storage.add_response(
+                    conversation_id=conversation_id,
+                    client=self.agent_name,
+                    server=server_name,
+                    tool=tool_name,
+                    result=response,
+                    risk_assessment=risk_assessment
+                )
+                return response
 
             # Request approval for HIGH_RISK or REQUIRES_APPROVAL
             elif risk_level_str in ["HIGH_RISK", "REQUIRES_APPROVAL"]:
@@ -541,9 +666,19 @@ This operation requires approval before proceeding.
                                 "assessment_method": risk_assessment.get("assessment_method", "unknown"),
                             }
                         )
-                        return await self._execute_operation(
+                        response = await self._execute_operation(
                             server_name, tool_name, parameters, risk_assessment
                         )
+                        # Log response to conversation
+                        storage.add_response(
+                            conversation_id=conversation_id,
+                            client=self.agent_name,
+                            server=server_name,
+                            tool=tool_name,
+                            result=response,
+                            risk_assessment=risk_assessment
+                        )
+                        return response
                     else:
                         interaction_logger.warning(
                             "MCP_SECURITY_DENIED",
@@ -561,11 +696,21 @@ This operation requires approval before proceeding.
                                 "assessment_method": risk_assessment.get("assessment_method", "unknown"),
                             }
                         )
-                        return self._create_denied_response(
+                        response = self._create_denied_response(
                             risk_assessment,
                             approval_response.reason,
                             approval_response.suggested_alternative,
                         )
+                        # Log response to conversation
+                        storage.add_response(
+                            conversation_id=conversation_id,
+                            client=self.agent_name,
+                            server=server_name,
+                            tool=tool_name,
+                            result=response,
+                            risk_assessment=risk_assessment
+                        )
+                        return response
                 else:
                     # No approval callback, must block
                     interaction_logger.warning(
@@ -582,10 +727,20 @@ This operation requires approval before proceeding.
                             "assessment_method": risk_assessment.get("assessment_method", "unknown"),
                         }
                     )
-                    return self._create_blocked_response(
+                    response = self._create_blocked_response(
                         risk_assessment,
                         "Operation requires approval but no approval mechanism configured",
                     )
+                    # Log response to conversation
+                    storage.add_response(
+                        conversation_id=conversation_id,
+                        client=self.agent_name,
+                        server=server_name,
+                        tool=tool_name,
+                        result=response,
+                        risk_assessment=risk_assessment
+                    )
+                    return response
 
         # No risk assessment at all - allow (no dangerous patterns or LLM found it safe)
         interaction_logger.info(
@@ -602,7 +757,16 @@ This operation requires approval before proceeding.
                 "assessment_method": "no_match",
             }
         )
-        return await self._execute_operation(server_name, tool_name, parameters, None)
+        response = await self._execute_operation(server_name, tool_name, parameters, None)
+        # Log response to conversation
+        storage.add_response(
+            conversation_id=conversation_id,
+            client=self.agent_name,
+            server=server_name,
+            tool=tool_name,
+            result=response
+        )
+        return response
 
     async def _request_approval(
         self,

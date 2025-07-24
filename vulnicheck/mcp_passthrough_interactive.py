@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .agent_detector import detect_agent
+from .conversation_storage import ConversationStorage
 from .dangerous_commands_risk_config import (
     DangerousPattern,
     RiskLevel,
@@ -72,9 +73,41 @@ class MCPPassthroughInteractive:
         # Store approved operations for retry
         self.approved_operations: dict[str, PendingOperation] = {}
 
+        # Conversation storage will be initialized on first use
+        self._conversation_storage: ConversationStorage | None = None
+        self._active_conversations: dict[str, str] = {}  # server -> conversation_id
+
         logger.info(
             f"Initialized interactive MCP passthrough for agent: {self.agent_name}"
         )
+
+    def _get_conversation_storage(self) -> ConversationStorage:
+        """Get or create conversation storage on demand."""
+        if self._conversation_storage is None:
+            self._conversation_storage = ConversationStorage()
+        return self._conversation_storage
+
+    def _get_or_create_conversation(self, server_name: str) -> str:
+        """Get or create a conversation for a server."""
+        if server_name in self._active_conversations:
+            return self._active_conversations[server_name]
+
+        storage = self._get_conversation_storage()
+
+        # Try to get an active conversation
+        conv = storage.get_active_conversation(self.agent_name, server_name)
+        if conv:
+            self._active_conversations[server_name] = conv.id
+            return conv.id
+
+        # Create a new conversation
+        conv = storage.start_conversation(
+            client=self.agent_name,
+            server=server_name,
+            metadata={"passthrough_mode": "interactive"}
+        )
+        self._active_conversations[server_name] = conv.id
+        return conv.id
 
     async def execute_with_approval(
         self,
@@ -91,6 +124,19 @@ class MCPPassthroughInteractive:
         - An approval request (for risky operations)
         - A blocked response (for dangerous operations)
         """
+        # Get or create conversation
+        conversation_id = self._get_or_create_conversation(server_name)
+        storage = self._get_conversation_storage()
+
+        # Log request to conversation
+        storage.add_request(
+            conversation_id=conversation_id,
+            client=self.agent_name,
+            server=server_name,
+            tool=tool_name,
+            parameters=parameters
+        )
+
         # Clean up expired operations
         self._cleanup_expired_operations()
 
@@ -106,9 +152,19 @@ class MCPPassthroughInteractive:
                 del self.approved_operations[request_id]
 
                 # Execute the approved operation
-                return await self._execute_operation(
+                response = await self._execute_operation(
                     server_name, tool_name, parameters, approved_op.risk_assessment
                 )
+                # Log response to conversation
+                storage.add_response(
+                    conversation_id=conversation_id,
+                    client=self.agent_name,
+                    server=server_name,
+                    tool=tool_name,
+                    result=response,
+                    risk_assessment=approved_op.risk_assessment
+                )
+                return response
 
         # Check for dangerous patterns
         config = get_dangerous_commands_risk_config()
@@ -126,11 +182,21 @@ class MCPPassthroughInteractive:
 
             if pattern.risk_level == RiskLevel.BLOCKED:
                 # Always block these operations
-                return {
+                response = {
                     "status": "blocked",
                     "reason": f"Operation blocked: {pattern.description}",
                     "risk_assessment": risk_assessment,
                 }
+                # Log response to conversation
+                storage.add_response(
+                    conversation_id=conversation_id,
+                    client=self.agent_name,
+                    server=server_name,
+                    tool=tool_name,
+                    result=response,
+                    risk_assessment=risk_assessment
+                )
+                return response
 
             elif pattern.risk_level in [
                 RiskLevel.HIGH_RISK,
@@ -148,17 +214,46 @@ class MCPPassthroughInteractive:
                 self.pending_operations[operation.request_id] = operation
 
                 # Return approval request
-                return self._create_approval_request(operation)
+                approval_request = self._create_approval_request(operation)
+                # Log response to conversation (approval request)
+                storage.add_response(
+                    conversation_id=conversation_id,
+                    client=self.agent_name,
+                    server=server_name,
+                    tool=tool_name,
+                    result=approval_request,
+                    risk_assessment=risk_assessment
+                )
+                return approval_request
 
             elif pattern.risk_level == RiskLevel.LOW_RISK:
                 # Log and proceed
                 logger.info(f"LOW_RISK operation detected: {pattern.name}")
-                return await self._execute_operation(
+                response = await self._execute_operation(
                     server_name, tool_name, parameters, risk_assessment
                 )
+                # Log response to conversation
+                storage.add_response(
+                    conversation_id=conversation_id,
+                    client=self.agent_name,
+                    server=server_name,
+                    tool=tool_name,
+                    result=response,
+                    risk_assessment=risk_assessment
+                )
+                return response
 
         # No dangerous patterns, execute normally
-        return await self._execute_operation(server_name, tool_name, parameters, None)
+        response = await self._execute_operation(server_name, tool_name, parameters, None)
+        # Log response to conversation
+        storage.add_response(
+            conversation_id=conversation_id,
+            client=self.agent_name,
+            server=server_name,
+            tool=tool_name,
+            result=response
+        )
+        return response
 
     async def process_approval(
         self,

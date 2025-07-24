@@ -109,13 +109,15 @@ docker-compose down
 ### Core Components
 
 1. **MCP Server** (`vulnicheck/server.py`): FastMCP-based server exposing vulnerability checking tools via Model Context Protocol
-   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`, `assess_operation_safety`, `comprehensive_security_check`
+   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`, `assess_operation_safety`, `comprehensive_security_check`, `get_mcp_conversations`
    - Runs on port 3000 by default (configurable via MCP_PORT env var)
 
 2. **Vulnerability Clients**:
-   - `osv_client.py`: Queries OSV.dev API for open source vulnerabilities
+   - `osv_client.py`: Queries OSV.dev API for open source vulnerabilities (includes PyPI Advisory Database)
    - `nvd_client.py`: Queries NIST National Vulnerability Database (supports API key for higher rate limits)
    - `github_client.py`: Queries GitHub Advisory Database (supports token for higher rate limits)
+   - `circl_client.py`: Queries CIRCL Vulnerability-Lookup API (aggregates multiple sources, no auth required)
+   - `safety_db_client.py`: Queries Safety DB for Python-specific vulnerabilities (open source, updated monthly)
 
 3. **MCP Client** (`mcp_client.py`):
    - Custom implementation instead of official MCP SDK for persistent connections
@@ -164,6 +166,15 @@ docker-compose down
    - **Selective Scanning**: Only runs scans confirmed by the user
    - **LLM Analysis**: Uses AI to analyze findings, prioritize risks, and generate recommendations
    - **Comprehensive Report**: Includes executive summary, risk scoring, and actionable recommendations
+
+12. **Conversation Storage** (`conversation_storage.py`):
+   - Stores all MCP passthrough interactions for audit and debugging
+   - **Lazy Initialization**: Directory `.vulnicheck/conversations` created on first use
+   - **Automatic Logging**: All passthrough operations (basic, with_approval, interactive) are logged
+   - **Message Tracking**: Stores requests, responses, risk assessments, and errors
+   - **Search Capability**: Find conversations by tool name, parameters, or results
+   - **Active Sessions**: Conversations stay active for 1 hour for continuity
+   - **Cleanup**: Old conversations (30+ days) can be automatically removed
 
 ### Key Implementation Details
 
@@ -222,7 +233,7 @@ See the docstring in `mcp_client.py` for more details.
 - All tests run with `uv run` to ensure proper virtual environment usage
 - Makefile includes targets for different test categories (unit, integration, MCP, security, clients)
 - Type checking configured with mypy (strict for production code, relaxed for tests)
-- **Test Status**: 226 unit tests passing, 2 skipped (integration tests requiring API credentials)
+- **Test Status**: 294 unit tests passing, 2 skipped (integration tests requiring API credentials)
 
 ## Important Notes
 
@@ -239,13 +250,16 @@ See the docstring in `mcp_client.py` for more details.
 
 ## Recent Improvements (2025)
 
+- **Added two new vulnerability databases** for comprehensive coverage:
+  - CIRCL Vulnerability-Lookup API (aggregates data from multiple sources)
+  - Safety DB (Python-specific vulnerabilities not always in CVE databases)
 - Fixed integration tests to properly skip when API credentials are unavailable
 - Updated Makefile to include all test files and proper linting coverage
 - Resolved all type annotation and mypy issues
 - Added comprehensive MCP interaction logging with full payload capture
 - Implemented hourly log rotation for MCP logs
 - Fixed test order dependencies that were causing intermittent failures
-- All tests now pass (209 unit tests, 2 skipped) with clean linting and type checking
+- All tests now pass (272 unit tests, 2 skipped) with clean linting and type checking
 - Added pre-commit hooks that run `make lint` and `make test-unit` before commits
 - Added `scan_dockerfile` tool to analyze Dockerfiles for Python dependency vulnerabilities
 - **Implemented LLM-based risk assessment for MCP passthrough**:
@@ -275,6 +289,14 @@ See the docstring in `mcp_client.py` for more details.
   - Orchestrates all security tools (dependencies, Docker, secrets, MCP) based on user choices
   - Uses LLM to analyze findings, prioritize risks, and generate actionable recommendations
   - Produces executive summary with overall risk scoring
+- **Conversation Storage and Retrieval**:
+  - Added automatic conversation logging for all MCP passthrough operations
+  - Conversations stored locally in `.vulnicheck/conversations` directory (created on first use)
+  - Added `get_mcp_conversations` tool to retrieve and search past interactions
+  - Tracks requests, responses, risk assessments, and errors for each conversation
+  - Supports filtering by client, server, and search queries
+  - Active conversations persist for 1 hour to maintain continuity
+  - Includes conversation cleanup functionality for old conversations (30+ days)
 
 ## Memories
 

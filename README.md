@@ -12,6 +12,17 @@ By using this software and its associated data, you acknowledge and agree to ass
 
 This software incorporates or references data from publicly available sources, including the National Vulnerability Database (NVD), Common Weakness Enumeration (CWE), and Open Source Vulnerabilities (OSV), which are provided under their respective public licenses and disclaimers.
 
+## Important Setup Note
+
+⚠️ **IMPORTANT**: Add `.vulnicheck` to your `.gitignore` file! This directory contains:
+- Conversation logs from MCP passthrough operations
+- Local cache and temporary files
+- Security audit trails
+
+```bash
+echo ".vulnicheck/" >> .gitignore
+```
+
 ## Quick Security Check
 
 The easiest way to use VulniCheck is with the **comprehensive_security_check** tool, which provides an interactive, AI-powered security assessment of your entire project:
@@ -43,6 +54,7 @@ This tool will:
 - **Docker security scanning** - analyzes Dockerfiles for vulnerable Python dependencies
 - **MCP security validation** - self-assessment capability for LLMs to validate their security posture
 - **MCP security passthrough** - validates and monitors cross-server MCP operations with built-in security constraints
+- **Conversation storage and retrieval** - automatically logs all MCP passthrough interactions for audit and debugging
 - **Pre-operation safety assessment** - evaluates risks before performing file operations, commands, or API calls
 - **Detailed CVE information** including CVSS scores and severity ratings
 - **CWE (Common Weakness Enumeration) mapping** for better understanding of vulnerability types
@@ -527,7 +539,46 @@ Analyze Dockerfiles for Python dependencies and check for vulnerabilities.
 - List of all dependencies with vulnerability status
 - Referenced dependency files found in the Dockerfile
 - Detailed vulnerability information for each affected package
-- Recommendations for securing the Docker image
+
+### 13. get_mcp_conversations
+
+Retrieve stored conversations between clients (e.g., Claude) and MCP servers that VulniCheck has intermediated.
+
+**Parameters:**
+- `client` (optional): Filter by client name (e.g., 'claude', 'cursor')
+- `server` (optional): Filter by MCP server name (e.g., 'github', 'zen')
+- `query` (optional): Search query to find conversations containing specific tools or parameters
+- `limit` (optional): Maximum number of conversations to return (default: 20, max: 1000)
+
+**Example:**
+```json
+{
+  "tool": "get_mcp_conversations",
+  "server": "github",
+  "limit": 10
+}
+```
+
+**Features:**
+- **Automatic conversation tracking** - All MCP passthrough operations are automatically logged
+- **Conversation storage** - Stored locally in `.vulnicheck/conversations` directory
+- **Search capability** - Search across tool names, parameters, and results
+- **Risk assessment tracking** - Security risk assessments are preserved with conversations
+- **Active conversation reuse** - Conversations remain active for 1 hour for continuity
+
+**Response includes:**
+- Conversation metadata (client, server, timestamps)
+- Recent messages with request/response pairs
+- Tool names and parameters used
+- Security status and risk assessments
+- Error messages if operations failed
+
+**Use cases:**
+- Review past MCP interactions
+- Audit security decisions made during passthrough
+- Debug failed operations
+- Track usage patterns across different MCP servers
+- Analyze security risks encountered
 
 ## Example Output
 

@@ -195,3 +195,4 @@ tests/integration/mcp_test_*.log
 
 # ruff
 .ruff_cache/
+.vulnicheck/

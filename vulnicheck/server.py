@@ -12,6 +12,7 @@ from pydantic import Field
 
 from .circl_client import CIRCLClient
 from .comprehensive_security_check import ComprehensiveSecurityCheck
+from .conversation_storage import ConversationStorage
 from .docker_scanner import DockerScanner
 from .github_client import GitHubClient
 from .mcp_passthrough_interactive import (
@@ -2211,6 +2212,178 @@ Without an LLM, you can still use individual security tools:
     except Exception as e:
         logger.error(f"Error in comprehensive security check: {e}")
         return f"❌ **Error**: {str(e)}"
+
+
+@mcp.tool
+async def get_mcp_conversations(
+    client: Annotated[
+        str | None,
+        Field(
+            description="Filter by client name (e.g., 'claude', 'cursor'). If not provided, returns all conversations"
+        )
+    ] = None,
+    server: Annotated[
+        str | None,
+        Field(
+            description="Filter by MCP server name (e.g., 'github', 'zen'). If not provided, returns all conversations"
+        )
+    ] = None,
+    query: Annotated[
+        str | None,
+        Field(
+            description="Search query to find conversations containing specific tools or parameters"
+        )
+    ] = None,
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum number of conversations to return",
+            ge=1,
+            le=1000
+        )
+    ] = 20,
+) -> str:
+    """
+    Retrieve stored conversations between clients and MCP servers.
+
+    This tool returns conversations that VulniCheck has intermediated,
+    including requests, responses, and risk assessments. Conversations
+    are stored locally in .vulnicheck/conversations directory.
+
+    Returns:
+        Formatted list of conversations with their messages
+    """
+    try:
+        # Initialize conversation storage
+        storage = ConversationStorage()
+
+        if query:
+            # Search for conversations containing the query
+            results = storage.search_conversations(query, limit=limit)
+
+            if not results:
+                return f"No conversations found matching query: '{query}'"
+
+            lines = [f"# 🔍 Search Results for '{query}'", ""]
+
+            for result in results:
+                conv_summary = result["conversation"]
+                lines.extend([
+                    f"## Conversation: {conv_summary['client']} → {conv_summary['server']}",
+                    f"- **ID**: `{conv_summary['id']}`",
+                    f"- **Started**: {conv_summary['started_at']}",
+                    f"- **Updated**: {conv_summary['updated_at']}",
+                    f"- **Matches Found**: {result['total_matches']}",
+                    "",
+                    "### Sample Matches:",
+                    ""
+                ])
+
+                for msg in result["matching_messages"][:3]:
+                    lines.extend([
+                        f"**{msg['direction'].upper()}** ({msg['timestamp']})",
+                        f"- Tool: `{msg['tool']}`",
+                    ])
+                    if msg.get('parameters'):
+                        lines.append(f"- Parameters: `{json.dumps(msg['parameters'], indent=2)}`")
+                    if msg.get('result'):
+                        lines.append(f"- Result: `{json.dumps(msg['result'], indent=2)[:200]}...`")
+                    lines.append("")
+
+                lines.append("---")
+                lines.append("")
+
+        else:
+            # List conversations with optional filters
+            conversations = storage.list_conversations(
+                client=client,
+                server=server,
+                limit=limit
+            )
+
+            if not conversations:
+                filters = []
+                if client:
+                    filters.append(f"client='{client}'")
+                if server:
+                    filters.append(f"server='{server}'")
+                filter_str = f" with filters: {', '.join(filters)}" if filters else ""
+                return f"No conversations found{filter_str}"
+
+            lines = ["# 📝 MCP Conversations", ""]
+
+            if client or server:
+                filters = []
+                if client:
+                    filters.append(f"Client: {client}")
+                if server:
+                    filters.append(f"Server: {server}")
+                lines.append(f"**Filters**: {', '.join(filters)}")
+                lines.append("")
+
+            for conv_summary in conversations:
+                # Load full conversation
+                conversation = storage.get_conversation(conv_summary["id"])
+                if not conversation:
+                    continue
+
+                lines.extend([
+                    f"## {conversation.client} → {conversation.server}",
+                    f"- **ID**: `{conversation.id}`",
+                    f"- **Started**: {conversation.started_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                    f"- **Updated**: {conversation.updated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                    f"- **Messages**: {len(conversation.messages)}",
+                    ""
+                ])
+
+                # Show recent messages (last 3)
+                if conversation.messages:
+                    lines.append("### Recent Messages:")
+                    lines.append("")
+
+                    for msg in conversation.messages[-3:]:
+                        direction_emoji = "📤" if msg.direction == "request" else "📥"
+                        lines.extend([
+                            f"{direction_emoji} **{msg.direction.upper()}** - `{msg.tool}` ({msg.timestamp.strftime('%H:%M:%S')})",
+                        ])
+
+                        if msg.direction == "request" and msg.parameters:
+                            params_str = json.dumps(msg.parameters, indent=2)
+                            if len(params_str) > 200:
+                                params_str = params_str[:200] + "..."
+                            lines.append("```json")
+                            lines.append(params_str)
+                            lines.append("```")
+
+                        if msg.direction == "response":
+                            if msg.error:
+                                lines.append(f"❌ **Error**: {msg.error}")
+                            elif msg.result:
+                                status = msg.result.get("status", "unknown")
+                                status_emoji = {
+                                    "success": "✅",
+                                    "blocked": "🚫",
+                                    "denied": "❌",
+                                    "error": "⚠️",
+                                    "mock": "🔧",
+                                    "approval_required": "🔐"
+                                }.get(status, "❓")
+                                lines.append(f"{status_emoji} **Status**: {status}")
+
+                                if msg.risk_assessment:
+                                    risk_level = msg.risk_assessment.get("risk_level", "unknown")
+                                    lines.append(f"⚡ **Risk Level**: {risk_level}")
+
+                        lines.append("")
+
+                lines.append("---")
+                lines.append("")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error retrieving conversations: {e}")
+        return f"❌ **Error retrieving conversations**: {str(e)}"
 
 
 def _format_comprehensive_report(report: dict[str, Any]) -> str:

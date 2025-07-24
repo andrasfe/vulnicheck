@@ -14,6 +14,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .agent_detector import detect_agent
+from .conversation_storage import ConversationStorage
 from .dangerous_commands_config import get_dangerous_commands_config
 from .logging_config import configure_mcp_logging
 from .mcp_client import MCPClient, MCPConnection
@@ -168,6 +169,10 @@ class MCPPassthrough:
         else:
             logger.info("Running in mock mode (no real MCP connections)")
 
+        # Conversation storage will be initialized on first use
+        self._conversation_storage: ConversationStorage | None = None
+        self._active_conversations: dict[str, str] = {}  # server -> conversation_id
+
         self.security_prompt_template = """
 SECURITY NOTICE: You are about to execute an MCP tool call with the following details:
 - Server: {server_name}
@@ -185,6 +190,34 @@ Additional context: {security_context}
 
 Please review this operation carefully before proceeding.
 """
+
+    def _get_conversation_storage(self) -> ConversationStorage:
+        """Get or create conversation storage on demand."""
+        if self._conversation_storage is None:
+            self._conversation_storage = ConversationStorage()
+        return self._conversation_storage
+
+    def _get_or_create_conversation(self, server_name: str) -> str:
+        """Get or create a conversation for a server."""
+        if server_name in self._active_conversations:
+            return self._active_conversations[server_name]
+
+        storage = self._get_conversation_storage()
+
+        # Try to get an active conversation
+        conv = storage.get_active_conversation(self.agent_name, server_name)
+        if conv:
+            self._active_conversations[server_name] = conv.id
+            return conv.id
+
+        # Create a new conversation
+        conv = storage.start_conversation(
+            client=self.agent_name,
+            server=server_name,
+            metadata={"passthrough_mode": "basic"}
+        )
+        self._active_conversations[server_name] = conv.id
+        return conv.id
 
     async def execute_with_security(
         self,
@@ -205,6 +238,19 @@ Please review this operation carefully before proceeding.
         Returns:
             Result from the MCP tool call or security rejection
         """
+        # Get or create conversation
+        conversation_id = self._get_or_create_conversation(server_name)
+        storage = self._get_conversation_storage()
+
+        # Log request to conversation
+        storage.add_request(
+            conversation_id=conversation_id,
+            client=self.agent_name,
+            server=server_name,
+            tool=tool_name,
+            parameters=parameters
+        )
+
         # Log the incoming request
         interaction_logger.info(
             "MCP_REQUEST",
@@ -279,6 +325,15 @@ Please review this operation carefully before proceeding.
                 }
             )
 
+            # Log response to conversation
+            storage.add_response(
+                conversation_id=conversation_id,
+                client=self.agent_name,
+                server=server_name,
+                tool=tool_name,
+                result=response
+            )
+
             return response
 
         # Log security decision - ALLOWED (no dangerous patterns)
@@ -318,6 +373,15 @@ Please review this operation carefully before proceeding.
                     }
                 )
 
+                # Log response to conversation
+                storage.add_response(
+                    conversation_id=conversation_id,
+                    client=self.agent_name,
+                    server=server_name,
+                    tool=tool_name,
+                    result=response
+                )
+
                 return response
             except Exception as e:
                 logger.error(f"MCP call failed: {e}")
@@ -339,6 +403,16 @@ Please review this operation carefully before proceeding.
                         "status": "error",
                         "error": str(e),
                     }
+                )
+
+                # Log response to conversation
+                storage.add_response(
+                    conversation_id=conversation_id,
+                    client=self.agent_name,
+                    server=server_name,
+                    tool=tool_name,
+                    result=response,
+                    error=str(e)
                 )
 
                 return response
@@ -367,6 +441,15 @@ Please review this operation carefully before proceeding.
                     "status": "mock",
                     "result": response,
                 }
+            )
+
+            # Log response to conversation
+            storage.add_response(
+                conversation_id=conversation_id,
+                client=self.agent_name,
+                server=server_name,
+                tool=tool_name,
+                result=response
             )
 
             return response
