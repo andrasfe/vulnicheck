@@ -15,6 +15,7 @@ from .comprehensive_security_check import ComprehensiveSecurityCheck
 from .conversation_storage import ConversationStorage
 from .docker_scanner import DockerScanner
 from .github_client import GitHubClient
+from .github_scanner import GitHubRepoScanner
 from .mcp_passthrough_interactive import (
     get_interactive_passthrough,
     mcp_passthrough_interactive,
@@ -54,6 +55,7 @@ secrets_scanner = None
 mcp_validator = None
 docker_scanner = None
 comprehensive_checker = None
+github_scanner = None
 
 
 def _ensure_clients_initialized() -> None:
@@ -67,7 +69,8 @@ def _ensure_clients_initialized() -> None:
         scanner, \
         secrets_scanner, \
         mcp_validator, \
-        docker_scanner
+        docker_scanner, \
+        github_scanner
     if osv_client is None:
         osv_client = OSVClient()
         nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
@@ -78,6 +81,7 @@ def _ensure_clients_initialized() -> None:
         secrets_scanner = SecretsScanner()
         mcp_validator = MCPValidator(local_only=True)
         docker_scanner = DockerScanner(scanner)
+        github_scanner = GitHubRepoScanner(scanner, secrets_scanner, docker_scanner)
 
 
 @lru_cache(maxsize=1000)
@@ -2093,7 +2097,8 @@ async def comprehensive_security_check(
 
     # Initialize comprehensive checker if needed
     if comprehensive_checker is None:
-        comprehensive_checker = ComprehensiveSecurityCheck()
+        _ensure_clients_initialized()
+        comprehensive_checker = ComprehensiveSecurityCheck(github_scanner=github_scanner)
 
     # Check if LLM is configured
     if not comprehensive_checker.has_llm_configured():
@@ -2115,7 +2120,8 @@ Without an LLM, you can still use individual security tools:
     try:
         if action == "start":
             # Start new session
-            checker = ComprehensiveSecurityCheck()
+            _ensure_clients_initialized()
+            checker = ComprehensiveSecurityCheck(github_scanner=github_scanner)
             result = await checker.start_conversation(project_path)
 
             # Store session if successful
@@ -2189,6 +2195,7 @@ Without an LLM, you can still use individual security tools:
                     "scan_dockerfile": scan_dockerfile,
                     "scan_for_secrets": scan_for_secrets,
                     "validate_mcp_security": validate_mcp_security,
+                    "scan_github_repo": scan_github_repo,
                 }
 
                 # Execute scans and get final report
@@ -2501,6 +2508,259 @@ def _format_comprehensive_report(report: dict[str, Any]) -> str:
     ])
 
     return "\n".join(lines)
+
+
+@mcp.tool
+async def scan_github_repo(
+    repo_url: Annotated[
+        str,
+        Field(
+            description="GitHub repository URL (e.g., https://github.com/owner/repo)"
+        )
+    ],
+    scan_types: Annotated[
+        list[str] | None,
+        Field(
+            description="Types of scans to perform. Options: 'dependencies', 'secrets', 'dockerfile'. Defaults to all."
+        )
+    ] = None,
+    depth: Annotated[
+        str,
+        Field(
+            description="Scan depth: 'quick' (fast, minimal checks), 'standard' (balanced), 'deep' (comprehensive)"
+        )
+    ] = "standard",
+    auth_token: Annotated[
+        str | None,
+        Field(
+            description="GitHub authentication token for private repos. Uses GITHUB_TOKEN env var if not provided."
+        )
+    ] = None,
+) -> str:
+    """
+    Scan a GitHub repository for security vulnerabilities.
+
+    Performs comprehensive security analysis including:
+    - Python dependency vulnerabilities (requirements.txt, pyproject.toml, etc.)
+    - Exposed secrets and credentials
+    - Dockerfile security issues
+
+    Returns a detailed report with findings, severity levels, and remediation recommendations.
+    Results are cached by commit SHA to avoid redundant scans.
+
+    Example:
+        scan_github_repo("https://github.com/example/repo", ["dependencies", "secrets"])
+
+    DISCLAIMER: Vulnerability data is provided 'AS IS' without warranty.
+    See README.md for full disclaimer.
+    """
+    _ensure_clients_initialized()
+    assert github_scanner is not None
+
+    try:
+        # Convert depth string to enum
+        from .github_scanner import ScanConfig, ScanDepth
+
+        depth_map = {
+            "quick": ScanDepth.QUICK,
+            "standard": ScanDepth.STANDARD,
+            "deep": ScanDepth.DEEP
+        }
+
+        scan_config = ScanConfig(scan_depth=depth_map.get(depth, ScanDepth.STANDARD))
+
+        # Run the scan
+        results = await github_scanner.scan_repository(
+            repo_url=repo_url,
+            scan_types=scan_types,
+            scan_config=scan_config,
+            auth_token=auth_token
+        )
+
+        # Format results
+        lines = ["# 🔍 GitHub Repository Security Scan", ""]
+        lines.append(f"**Repository**: {results['repository']}")
+        lines.append(f"**Scan Date**: {results['scan_date']}")
+
+        if results.get('from_cache'):
+            lines.append("**Note**: Results retrieved from cache")
+
+        if 'repository_info' in results:
+            info = results['repository_info']
+            lines.append(f"**Owner/Repo**: {info['owner']}/{info['name']}")
+            if info.get('branch'):
+                lines.append(f"**Branch**: {info['branch']}")
+            if info.get('commit'):
+                lines.append(f"**Commit**: {info['commit'][:8]}")
+
+        lines.extend(["", "---", ""])
+
+        # Handle errors
+        if results['status'] == 'error':
+            lines.append(f"❌ **Error**: {results.get('error', 'Unknown error')}")
+            return "\n".join(lines)
+
+        # Summary
+        summary = results.get('summary', {})
+        if summary:
+            lines.extend([
+                "## 📊 Summary",
+                "",
+                f"- **Total Issues**: {summary.get('total_issues', 0)}",
+                f"- **Critical**: {summary.get('critical', 0)}",
+                f"- **High**: {summary.get('high', 0)}",
+                f"- **Medium**: {summary.get('medium', 0)}",
+                f"- **Low**: {summary.get('low', 0)}",
+                f"- **Scans Completed**: {', '.join(summary.get('scan_types_completed', []))}",
+                "",
+                "---",
+                ""
+            ])
+
+        # Detailed findings
+        findings = results.get('findings', {})
+
+        # Dependencies
+        if 'dependencies' in findings:
+            dep_findings = findings['dependencies']
+            lines.extend(["## 📦 Dependency Vulnerabilities", ""])
+
+            if 'error' in dep_findings:
+                lines.append(f"❌ Error scanning dependencies: {dep_findings['error']}")
+            elif dep_findings.get('file_scanned'):
+                lines.append(f"**File Scanned**: {dep_findings['file_scanned']}")
+                lines.append(f"**Packages Checked**: {dep_findings.get('packages_checked', 0)}")
+
+                vulns = dep_findings.get('vulnerabilities', [])
+                if vulns:
+                    lines.extend(["", "### Vulnerabilities Found:", ""])
+                    for vuln in vulns[:10]:  # Limit to first 10
+                        lines.extend([
+                            f"#### {vuln.get('package_name', 'Unknown')} {vuln.get('version', '')}",
+                            f"- **Severity**: {vuln.get('severity', 'Unknown')}",
+                            f"- **CVE**: {vuln.get('cve_id', 'N/A')}",
+                            f"- **Description**: {vuln.get('description', 'No description')[:200]}...",
+                            ""
+                        ])
+                    if len(vulns) > 10:
+                        lines.append(f"*... and {len(vulns) - 10} more vulnerabilities*")
+                else:
+                    lines.append("✅ No vulnerabilities found in dependencies")
+            else:
+                lines.append("⚠️ No dependency files found to scan")
+
+            lines.extend(["", "---", ""])
+
+        # Secrets
+        if 'secrets' in findings:
+            secret_findings = findings['secrets']
+            lines.extend(["## 🔐 Exposed Secrets", ""])
+
+            if isinstance(secret_findings, dict) and 'error' in secret_findings:
+                lines.append(f"❌ Error scanning for secrets: {secret_findings['error']}")
+            elif isinstance(secret_findings, list):
+                # Handle list format from secrets scanner
+                total_secrets = len(secret_findings)
+
+                if total_secrets > 0:
+                    lines.append(f"⚠️ **{total_secrets} potential secrets found**")
+                    lines.append("")
+                    # Display secrets as list
+                    for secret in secret_findings[:10]:  # Limit display
+                        lines.append(f"- {secret}")
+                    if len(secret_findings) > 10:
+                        lines.append(f"*... and {len(secret_findings) - 10} more*")
+                    lines.append("")
+                else:
+                    lines.append("✅ No exposed secrets detected")
+            elif isinstance(secret_findings, dict):
+                # Handle dict format with severity levels
+                total_secrets = sum(len(secret_findings.get(sev, []))
+                                  for sev in ['critical', 'high', 'medium', 'low'])
+
+                if total_secrets > 0:
+                    lines.append(f"⚠️ **{total_secrets} potential secrets found**")
+                    lines.append("")
+
+                    for severity in ['critical', 'high', 'medium', 'low']:
+                        secrets = secret_findings.get(severity, [])
+                        if secrets:
+                            lines.append(f"### {severity.title()} Severity:")
+                            for secret in secrets[:5]:  # Limit display
+                                lines.append(f"- {secret}")
+                            if len(secrets) > 5:
+                                lines.append(f"*... and {len(secrets) - 5} more*")
+                            lines.append("")
+                else:
+                    lines.append("✅ No exposed secrets detected")
+
+            lines.extend(["", "---", ""])
+
+        # Dockerfiles
+        if 'dockerfile' in findings:
+            docker_findings = findings['dockerfile']
+            lines.extend(["## 🐳 Dockerfile Security", ""])
+
+            if 'error' in docker_findings:
+                lines.append(f"❌ Error scanning Dockerfiles: {docker_findings['error']}")
+            else:
+                dockerfiles = docker_findings.get('dockerfiles', [])
+                if dockerfiles:
+                    lines.append(f"**Dockerfiles Found**: {len(dockerfiles)}")
+                    lines.append(f"**Total Vulnerabilities**: {docker_findings.get('total_vulnerabilities', 0)}")
+                    lines.append("")
+
+                    for df in dockerfiles:
+                        if df['vulnerabilities']:
+                            lines.extend([
+                                f"### {df['path']}",
+                                f"- Packages Found: {df['packages_found']}",
+                                f"- Vulnerabilities: {len(df['vulnerabilities'])}",
+                                ""
+                            ])
+                else:
+                    lines.append("ℹ️ No Dockerfiles found in repository")
+
+            lines.extend(["", "---", ""])
+
+        # Remediation recommendations
+        remediation = results.get('remediation', {})
+        if any(remediation.get(level, []) for level in ['immediate', 'medium_term', 'long_term']):
+            lines.extend(["## 🛠️ Remediation Recommendations", ""])
+
+            if remediation.get('immediate'):
+                lines.extend(["### 🚨 Immediate Actions:", ""])
+                for action in remediation['immediate']:
+                    lines.append(f"- {action}")
+                lines.append("")
+
+            if remediation.get('medium_term'):
+                lines.extend(["### 📅 Medium-term Improvements:", ""])
+                for action in remediation['medium_term']:
+                    lines.append(f"- {action}")
+                lines.append("")
+
+            if remediation.get('long_term'):
+                lines.extend(["### 🎯 Long-term Strategy:", ""])
+                for action in remediation['long_term']:
+                    lines.append(f"- {action}")
+                lines.append("")
+
+        lines.extend([
+            "",
+            "---",
+            "",
+            "**Note**: This scan provides a security assessment based on publicly available vulnerability data. "
+            "Always verify findings and test remediation in a safe environment before applying to production.",
+            "",
+            "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty."
+        ])
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error scanning GitHub repository: {e}")
+        return f"❌ **Error scanning repository**: {str(e)}\n\nPlease check the repository URL and try again."
 
 
 def main() -> None:

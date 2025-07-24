@@ -25,14 +25,22 @@ echo ".vulnicheck/" >> .gitignore
 
 ## Quick Security Check
 
-The easiest way to use VulniCheck is with the **comprehensive_security_check** tool, which provides an interactive, AI-powered security assessment of your entire project:
+The easiest way to use VulniCheck is with the **comprehensive_security_check** tool, which provides an interactive, AI-powered security assessment of your entire project or any GitHub repository:
 
 ```
+# For current directory
 "Run a comprehensive security check on my project"
+
+# For a specific local path
+"Run a comprehensive security check on /path/to/project"
+
+# For a GitHub repository
+"Run a comprehensive security check on https://github.com/owner/repo"
 ```
 
 This tool will:
 - Automatically discover your project structure (dependencies, Dockerfiles, MCP configs)
+- Support both local directories and GitHub repositories (public and private with auth)
 - Ask you what to scan (you can choose specific areas or scan everything)
 - Run all relevant security tools based on your choices
 - Provide an AI-analyzed report with prioritized recommendations
@@ -48,6 +56,7 @@ This tool will:
   - CIRCL Vulnerability-Lookup (aggregates multiple sources)
   - Safety DB (Python-specific vulnerabilities)
 - **Comprehensive coverage** by querying 5+ authoritative vulnerability databases
+- **GitHub repository scanning** - comprehensive security analysis of entire repositories with one command
 - **Dependency scanning** for `requirements.txt`, `pyproject.toml`, and lock files
 - **Python import scanning** - automatically discovers dependencies from Python source files when no requirements file exists
 - **Secrets detection** - scans files and directories for exposed API keys, passwords, and credentials using detect-secrets
@@ -61,6 +70,7 @@ This tool will:
 - **FastMCP integration** for simplified Model Context Protocol implementation
 - **Actionable security recommendations** with upgrade suggestions
 - **Comprehensive logging** with hourly rotation for MCP interactions
+- **Smart caching** - commit-level caching for GitHub repository scans to avoid redundant analysis
 
 ## Quick Start
 
@@ -230,6 +240,8 @@ Once the service is running and your IDE is configured, you can interact with Vu
 - "Check if my code contains any API keys or passwords"
 - "Validate my MCP security configuration"
 - "Scan this Dockerfile for vulnerable Python packages"
+- "Scan the GitHub repository https://github.com/numpy/numpy for vulnerabilities"
+- "Do a comprehensive security check on https://github.com/owner/repo"
 
 ### Managing the Service
 
@@ -647,6 +659,86 @@ Retrieve stored conversations between clients (e.g., Claude) and MCP servers tha
 - Track usage patterns across different MCP servers
 - Analyze security risks encountered
 
+### 14. scan_github_repo
+
+Scan a GitHub repository for security vulnerabilities by analyzing dependencies, secrets, and Dockerfiles.
+
+**Parameters:**
+- `repo_url` (required): GitHub repository URL (e.g., https://github.com/owner/repo)
+- `scan_types` (optional): Types of scans to perform. Options: 'dependencies', 'secrets', 'dockerfile'. Defaults to all.
+- `depth` (optional): Scan depth: 'quick' (fast, minimal checks), 'standard' (balanced), 'deep' (comprehensive). Default: 'standard'
+- `auth_token` (optional): GitHub authentication token for private repos. Uses GITHUB_TOKEN env var if not provided.
+
+**Example:**
+```json
+{
+  "tool": "scan_github_repo",
+  "repo_url": "https://github.com/numpy/numpy",
+  "scan_types": ["dependencies", "secrets"],
+  "depth": "standard"
+}
+```
+
+**Supported URL formats:**
+- https://github.com/owner/repo
+- https://github.com/owner/repo.git
+- https://github.com/owner/repo/tree/branch
+- https://github.com/owner/repo/commit/hash
+- git@github.com:owner/repo.git
+
+**Features:**
+- **Comprehensive scanning** - Analyzes dependencies, secrets, and Dockerfiles in one operation
+- **Smart caching** - Caches results by commit SHA for 24 hours to avoid redundant scans
+- **Private repository support** - Works with private repos using GitHub tokens
+- **Parallel scanning** - Runs all scan types concurrently for better performance
+- **Branch/commit support** - Can scan specific branches or commits
+- **Remediation recommendations** - Provides immediate, medium-term, and long-term action items
+
+**Response includes:**
+- Repository information (owner, name, branch, commit)
+- Scan configuration and date
+- Findings organized by scan type:
+  - **Dependencies**: Vulnerable packages with CVE details and severity
+  - **Secrets**: Exposed credentials categorized by severity
+  - **Dockerfiles**: Vulnerable packages in Docker images
+- Summary statistics (total issues, severity breakdown)
+- Prioritized remediation recommendations
+
+**Example response summary:**
+```json
+{
+  "status": "success",
+  "repository": "https://github.com/owner/repo",
+  "summary": {
+    "total_issues": 15,
+    "critical": 2,
+    "high": 5,
+    "medium": 8,
+    "low": 0,
+    "scan_types_completed": ["dependencies", "secrets", "dockerfile"]
+  },
+  "remediation": {
+    "immediate": [
+      "Update vulnerable dependencies to patched versions",
+      "Rotate all exposed secrets and credentials immediately"
+    ],
+    "medium_term": [
+      "Implement automated dependency scanning in CI/CD pipeline"
+    ],
+    "long_term": [
+      "Set up automated dependency updates with security patches"
+    ]
+  }
+}
+```
+
+**Use cases:**
+- Pre-acquisition security audit of repositories
+- Regular security assessments of your own projects
+- Evaluating third-party dependencies before adoption
+- Compliance and security reporting
+- CI/CD integration for automated security checks
+
 ## Example Output
 
 ### Package Vulnerability Check
@@ -865,13 +957,24 @@ If you encounter rate limiting errors:
 - **Added two new vulnerability databases** for comprehensive coverage:
   - CIRCL Vulnerability-Lookup API (aggregates data from multiple sources)
   - Safety DB (Python-specific vulnerabilities not always in CVE databases)
+- **Added GitHub repository scanning** (`scan_github_repo` tool):
+  - Comprehensive security analysis of entire repositories with one command
+  - Supports public and private repositories with authentication
+  - Analyzes dependencies, secrets, and Dockerfiles in parallel
+  - Smart caching based on commit SHA for efficient re-scans
+  - Provides prioritized remediation recommendations
+- **Enhanced comprehensive_security_check with GitHub URL support**:
+  - Now accepts GitHub repository URLs in addition to local paths
+  - Seamlessly integrates GitHub repository scanning into the interactive workflow
+  - Automatically uses the GitHub scanner when a repository URL is provided
+  - Maintains the same interactive Q&A experience for both local and remote repos
 - Fixed integration tests to properly skip when API credentials are unavailable
 - Updated Makefile to include all test files and proper linting coverage
 - Resolved all type annotation and mypy issues
 - Added comprehensive MCP interaction logging with full payload capture
 - Implemented hourly log rotation for MCP logs
 - Fixed test order dependencies that were causing intermittent failures
-- All tests now pass (272 unit tests, 2 skipped) with clean linting
+- All tests now pass (294 unit tests, 1 skipped) with clean linting and type checking
 - Added pre-commit hooks that run `make lint` and `make test-unit` before commits
 - Added Docker vulnerability scanner tool for analyzing Dockerfiles
 - Enhanced MCP passthrough with risk-based approval workflows

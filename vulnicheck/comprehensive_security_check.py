@@ -62,6 +62,8 @@ class ConversationContext:
     """Maintains context throughout the interactive conversation."""
     state: ConversationState = ConversationState.INITIAL_DISCOVERY
     project_path: Path | None = None
+    github_url: str | None = None
+    is_github_repo: bool = False
     dependency_files: list[Path] = field(default_factory=list)
     dockerfiles: list[Path] = field(default_factory=list)
     has_mcp_config: bool = False
@@ -77,14 +79,26 @@ class ConversationContext:
 class ComprehensiveSecurityCheck:
     """Orchestrates comprehensive security checks with interactive conversation."""
 
-    def __init__(self) -> None:
+    def __init__(self, github_scanner: Any = None) -> None:
         """Initialize the comprehensive security checker."""
         self.safety_advisor = SafetyAdvisor()
         self.context = ConversationContext()
+        self.github_scanner = github_scanner
 
     def has_llm_configured(self) -> bool:
         """Check if an LLM is configured for analysis."""
         return bool(os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
+
+    def _is_github_url(self, url: str) -> bool:
+        """Check if the provided string is a GitHub URL."""
+        github_patterns = [
+            "github.com/",
+            "https://github.com/",
+            "http://github.com/",
+            "git@github.com:",
+            "github.com:"
+        ]
+        return any(pattern in url.lower() for pattern in github_patterns)
 
     async def start_conversation(self, initial_path: str | None = None) -> dict[str, Any]:
         """
@@ -104,10 +118,18 @@ class ComprehensiveSecurityCheck:
 
         self.context = ConversationContext()
 
-        if initial_path:
+        # Check if initial_path is a GitHub URL
+        if initial_path and self._is_github_url(initial_path):
+            self.context.github_url = initial_path
+            self.context.is_github_repo = True
+            # For GitHub repos, we'll ask for confirmation before scanning
+            question = f"I'll perform a comprehensive security check on the GitHub repository: {initial_path}\n\nShould I proceed with scanning this repository? (yes/no)"
+        elif initial_path:
             self.context.project_path = Path(initial_path).resolve()
+            question = f"I'll perform a comprehensive security check. I found the project at: {self.context.project_path}\n\nIs this the correct project root? (yes/no) If not, please provide the correct path."
         else:
             self.context.project_path = Path.cwd()
+            question = f"I'll perform a comprehensive security check. I found the project at: {self.context.project_path}\n\nIs this the correct project root? (yes/no) If not, please provide the correct path."
 
         # Start discovery
         discovery = await self._discover_resources()
@@ -117,7 +139,7 @@ class ComprehensiveSecurityCheck:
 
         return {
             "status": "question",
-            "question": f"I'll perform a comprehensive security check. I found the project at: {self.context.project_path}\n\nIs this the correct project root? (yes/no) If not, please provide the correct path.",
+            "question": question,
             "discovery": discovery,
             "conversation_id": id(self.context)
         }
@@ -159,6 +181,12 @@ class ComprehensiveSecurityCheck:
             "has_mcp_config": False,
             "python_files_count": 0
         }
+
+        # For GitHub repos, we'll discover resources after scanning
+        if self.context.is_github_repo:
+            discovery["is_github_repo"] = True
+            discovery["github_url"] = self.context.github_url
+            return discovery
 
         if not self.context.project_path or not self.context.project_path.exists():
             return discovery
@@ -204,6 +232,14 @@ class ComprehensiveSecurityCheck:
             # Move to next question
             self.context.state = ConversationState.CONFIRM_DEPENDENCIES
 
+            # For GitHub repos, we'll discover resources after confirmation
+            if self.context.is_github_repo:
+                return {
+                    "status": "question",
+                    "question": "Should I scan the repository dependencies for vulnerabilities? (yes/no)",
+                    "state": self.context.state.value
+                }
+
             if self.context.dependency_files:
                 files_list = "\n".join(f"  - {f.name}" for f in self.context.dependency_files[:5])
                 if len(self.context.dependency_files) > 5:
@@ -227,10 +263,19 @@ class ComprehensiveSecurityCheck:
                     self.context.state = ConversationState.CONFIRM_DOCKERFILE
                     return await self._next_question()
         else:
+            # For GitHub repos, they might provide a different URL
+            if self._is_github_url(response):
+                self.context.github_url = response
+                self.context.is_github_repo = True
+                return {
+                    "status": "question",
+                    "question": f"I'll perform a comprehensive security check on the GitHub repository: {response}\n\nShould I proceed with scanning this repository? (yes/no)",
+                    "state": ConversationState.CONFIRM_PROJECT_PATH.value
+                }
             # Ask for correct path
             return {
                 "status": "question",
-                "question": "Please provide the correct project root path:",
+                "question": "Please provide the correct project root path or GitHub repository URL:",
                 "state": self.context.state.value
             }
 
@@ -290,6 +335,14 @@ class ComprehensiveSecurityCheck:
     async def _next_question(self) -> dict[str, Any]:
         """Get the next question based on current state."""
         if self.context.state == ConversationState.CONFIRM_DOCKERFILE:
+            # For GitHub repos, always ask about Dockerfile scanning
+            if self.context.is_github_repo:
+                return {
+                    "status": "question",
+                    "question": "Should I scan Dockerfiles in the repository for Python package vulnerabilities? (yes/no)",
+                    "state": self.context.state.value
+                }
+
             if self.context.dockerfiles:
                 files_list = "\n".join(f"  - {f.name}" for f in self.context.dockerfiles[:3])
                 return {
@@ -303,6 +356,11 @@ class ComprehensiveSecurityCheck:
                 return await self._next_question()
 
         elif self.context.state == ConversationState.CONFIRM_MCP_CONFIG:
+            # Skip MCP check for GitHub repos
+            if self.context.is_github_repo:
+                self.context.state = ConversationState.CONFIRM_SECRET_SCAN
+                return await self._next_question()
+
             if self.context.has_mcp_config:
                 return {
                     "status": "question",
@@ -315,9 +373,10 @@ class ComprehensiveSecurityCheck:
                 return await self._next_question()
 
         elif self.context.state == ConversationState.CONFIRM_SECRET_SCAN:
+            target_name = self.context.github_url if self.context.is_github_repo else (self.context.project_path.name if self.context.project_path else 'the project')
             return {
                 "status": "question",
-                "question": f"Should I scan {self.context.project_path.name if self.context.project_path else 'the project'} for exposed secrets and credentials? (yes/no)",
+                "question": f"Should I scan {target_name} for exposed secrets and credentials? (yes/no)",
                 "state": self.context.state.value
             }
 
@@ -336,7 +395,65 @@ class ComprehensiveSecurityCheck:
         self.context.state = ConversationState.EXECUTING_SCANS
         results = {}
 
-        # Execute each confirmed scan
+        # If this is a GitHub repo, use the GitHub scanner
+        if self.context.is_github_repo and self.context.github_url:
+            try:
+                if "scan_github_repo" in scan_tools:
+                    # Determine scan types based on user confirmations
+                    scan_types = []
+                    if self.context.scan_results.get("scan_dependencies"):
+                        scan_types.append("dependencies")
+                    if self.context.scan_results.get("scan_dockerfile"):
+                        scan_types.append("dockerfile")
+                    if self.context.scan_results.get("scan_secrets"):
+                        scan_types.append("secrets")
+
+                    # Scan the GitHub repository
+                    github_result = await scan_tools["scan_github_repo"](
+                        repo_url=self.context.github_url,
+                        scan_types=scan_types if scan_types else None,
+                        depth="standard"
+                    )
+
+                    # Parse the GitHub results and distribute to appropriate categories
+                    if isinstance(github_result, str):
+                        # Parse the string result
+                        import json
+                        try:
+                            parsed_result = json.loads(github_result)
+                        except (json.JSONDecodeError, TypeError):
+                            parsed_result = {"raw": github_result}
+                    else:
+                        parsed_result = github_result
+
+                    # Extract findings by type
+                    if "findings" in parsed_result:
+                        findings = parsed_result["findings"]
+                        if "dependencies" in findings and self.context.scan_results.get("scan_dependencies"):
+                            results["dependencies_github"] = findings["dependencies"]
+                        if "dockerfile" in findings and self.context.scan_results.get("scan_dockerfile"):
+                            results["dockerfile_github"] = findings["dockerfile"]
+                        if "secrets" in findings and self.context.scan_results.get("scan_secrets"):
+                            results["secrets"] = findings["secrets"]
+                    else:
+                        results["github_scan"] = parsed_result
+
+                    # Store raw results
+                    self.context.scan_results["raw_results"] = results
+
+                    # Analyze with LLM
+                    self.context.state = ConversationState.ANALYZING_RESULTS
+                    analysis = await self._analyze_results_with_llm(results)
+
+                    # Generate final report
+                    self.context.state = ConversationState.COMPLETE
+                    return self._generate_comprehensive_report(results, analysis)
+
+            except Exception as e:
+                logger.error(f"Error scanning GitHub repo: {e}")
+                results["github_scan"] = {"error": str(e)}
+
+        # Execute each confirmed scan for local projects
         if self.context.scan_results.get("scan_dependencies"):
             for dep_file in self.context.dependency_files:
                 try:
@@ -531,7 +648,9 @@ Project context:
                 "overall_risk": analysis["risk_level"],
                 "total_findings": analysis["finding_count"],
                 "scan_duration_seconds": duration,
-                "project_path": str(self.context.project_path),
+                "project_path": str(self.context.project_path) if self.context.project_path else None,
+                "github_url": self.context.github_url if self.context.is_github_repo else None,
+                "is_github_repo": self.context.is_github_repo,
                 "scans_performed": list(self.context.scan_results.keys())
             },
             "detailed_findings": scan_results,

@@ -109,7 +109,7 @@ docker-compose down
 ### Core Components
 
 1. **MCP Server** (`vulnicheck/server.py`): FastMCP-based server exposing vulnerability checking tools via Model Context Protocol
-   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`, `assess_operation_safety`, `comprehensive_security_check`, `get_mcp_conversations`
+   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`, `assess_operation_safety`, `comprehensive_security_check`, `get_mcp_conversations`, `scan_github_repo`
    - Runs on port 3000 by default (configurable via MCP_PORT env var)
 
 2. **Vulnerability Clients**:
@@ -176,6 +176,15 @@ docker-compose down
    - **Active Sessions**: Conversations stay active for 1 hour for continuity
    - **Cleanup**: Old conversations (30+ days) can be automatically removed
 
+13. **GitHub Repository Scanner** (`github_scanner.py`):
+   - Comprehensive security analysis of GitHub repositories
+   - **URL Parsing**: Supports multiple GitHub URL formats (HTTPS, SSH, branches, commits)
+   - **Repository Cloning**: Clones repositories with authentication support for private repos
+   - **Parallel Scanning**: Runs dependency, secrets, and Dockerfile scans concurrently
+   - **Smart Caching**: Caches results by commit SHA for 24 hours
+   - **Remediation Recommendations**: Provides prioritized action items
+   - **Integration**: Leverages existing scanners (DependencyScanner, SecretsScanner, DockerScanner)
+
 ### Key Implementation Details
 
 - All clients are initialized lazily to avoid connection issues at startup
@@ -233,7 +242,7 @@ See the docstring in `mcp_client.py` for more details.
 - All tests run with `uv run` to ensure proper virtual environment usage
 - Makefile includes targets for different test categories (unit, integration, MCP, security, clients)
 - Type checking configured with mypy (strict for production code, relaxed for tests)
-- **Test Status**: 294 unit tests passing, 2 skipped (integration tests requiring API credentials)
+- **Test Status**: 294 unit tests passing, 1 skipped (integration tests requiring API credentials)
 
 ## Important Notes
 
@@ -253,13 +262,21 @@ See the docstring in `mcp_client.py` for more details.
 - **Added two new vulnerability databases** for comprehensive coverage:
   - CIRCL Vulnerability-Lookup API (aggregates data from multiple sources)
   - Safety DB (Python-specific vulnerabilities not always in CVE databases)
+- **Added GitHub repository scanning (`scan_github_repo` tool)**:
+  - Comprehensive security analysis of entire repositories with one command
+  - Supports multiple GitHub URL formats (HTTPS, SSH, branches, commits)
+  - Analyzes dependencies, secrets, and Dockerfiles in parallel
+  - Smart caching based on commit SHA (24-hour TTL)
+  - Private repository support with GitHub authentication
+  - Provides prioritized remediation recommendations (immediate, medium-term, long-term)
+  - Integrates with existing scanners (DependencyScanner, SecretsScanner, DockerScanner)
 - Fixed integration tests to properly skip when API credentials are unavailable
 - Updated Makefile to include all test files and proper linting coverage
 - Resolved all type annotation and mypy issues
 - Added comprehensive MCP interaction logging with full payload capture
 - Implemented hourly log rotation for MCP logs
 - Fixed test order dependencies that were causing intermittent failures
-- All tests now pass (272 unit tests, 2 skipped) with clean linting and type checking
+- All tests now pass (294 unit tests, 1 skipped) with clean linting and type checking
 - Added pre-commit hooks that run `make lint` and `make test-unit` before commits
 - Added `scan_dockerfile` tool to analyze Dockerfiles for Python dependency vulnerabilities
 - **Implemented LLM-based risk assessment for MCP passthrough**:
@@ -286,9 +303,11 @@ See the docstring in `mcp_client.py` for more details.
   - Added `comprehensive_security_check` tool for interactive, AI-powered security assessment
   - Requires LLM configuration (OpenAI or Anthropic API key)
   - Discovers project resources automatically and asks for confirmation
+  - **Now supports GitHub repository URLs**: Pass a GitHub URL to analyze remote repositories
   - Orchestrates all security tools (dependencies, Docker, secrets, MCP) based on user choices
   - Uses LLM to analyze findings, prioritize risks, and generate actionable recommendations
   - Produces executive summary with overall risk scoring
+  - Seamlessly integrates GitHub scanner when repository URLs are provided
 - **Conversation Storage and Retrieval**:
   - Added automatic conversation logging for all MCP passthrough operations
   - Conversations stored locally in `.vulnicheck/conversations` directory (created on first use)
@@ -303,3 +322,4 @@ See the docstring in `mcp_client.py` for more details.
 - No Docker for VulniCheck deployment. Remember that Docker is not used for deploying the VulniCheck service.
 - Always do testing and linting before commit
 - Never add claude as co-author
+- The uvx config file is stored at ~/.config/uv/uv.toml
