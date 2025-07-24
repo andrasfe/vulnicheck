@@ -66,6 +66,52 @@ This tool will:
 
 **Requirements:** Python 3.10 or higher
 
+### Option 1: Direct from GitHub with uvx (Recommended)
+
+If you have `uv` installed (`pip install uv`), you can run VulniCheck directly without cloning:
+
+**Claude Desktop:**
+```json
+{
+  "mcpServers": {
+    "vulnicheck": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/andrasfe/vulnicheck.git",
+        "vulnicheck"
+      ],
+      "env": {
+        "NVD_API_KEY": "your-nvd-api-key",
+        "GITHUB_TOKEN": "your-github-token",
+        "OPENAI_API_KEY": "your-openai-key",
+        "ANTHROPIC_API_KEY": "your-anthropic-key"
+      }
+    }
+  }
+}
+```
+
+**Claude Code:**
+```bash
+# Basic setup
+claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+
+# With environment variables for enhanced features
+claude mcp add vulnicheck \
+  -e NVD_API_KEY=your-nvd-key \
+  -e GITHUB_TOKEN=your-github-token \
+  -e OPENAI_API_KEY=your-openai-key \
+  -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
+
+**Note:** Environment variables are optional but recommended:
+- `NVD_API_KEY`: Increases rate limit from 5 to 50 requests/30s ([get free key](https://nvd.nist.gov/developers/request-an-api-key))
+- `GITHUB_TOKEN`: Increases rate limit to 5000 requests/hour ([create token](https://github.com/settings/tokens))
+- `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`: Enables AI-powered risk assessment for MCP passthrough
+
+### Option 2: Traditional Installation
+
 1. **Automated Installation and Setup:**
 ```bash
 git clone https://github.com/andrasfe/vulnicheck.git
@@ -110,7 +156,28 @@ claude mcp add vulnicheck -e NVD_API_KEY=your_key -e GITHUB_TOKEN=your_token -- 
 ```
 
 **VS Code / Cursor:**
-Add to your MCP settings:
+
+With uvx:
+```json
+{
+  "mcpServers": {
+    "vulnicheck": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/andrasfe/vulnicheck.git",
+        "vulnicheck"
+      ],
+      "env": {
+        "NVD_API_KEY": "your-nvd-api-key",
+        "GITHUB_TOKEN": "your-github-token"
+      }
+    }
+  }
+}
+```
+
+Or traditional setup:
 ```json
 {
   "mcpServers": {
