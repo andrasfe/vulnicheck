@@ -25,46 +25,37 @@ Please provide your API key(s) or type "skip" to continue without them:
 
 ### Step 2: Have the Human Run the Installation Command
 
-**⚠️ IMPORTANT FOR CLAUDE/AGENTS**: You should create an installation script to avoid line-breaking issues with long API keys.
+**⚠️ IMPORTANT FOR CLAUDE/AGENTS**: Simply provide the installation command to the user. Do NOT attempt to run it yourself.
 
-Follow these steps:
+Tell the user:
+```
+To install VulniCheck, please run the following command in your terminal:
 
-1. **Create the installation script** using the Write tool to create `/tmp/install-vulnicheck.sh` with the appropriate content based on what the user provided:
-
-**For OPENAI_API_KEY only:**
-```bash
-#!/bin/bash
-claude mcp add vulnicheck -e OPENAI_API_KEY='<INSERT_USER_PROVIDED_KEY_HERE>' -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+⚠️ WARNING: Due to IDE display, the command below may appear broken across multiple lines.
+If you see line breaks in the command, please remove them so the entire command is on ONE LINE before running it.
 ```
 
-**For ANTHROPIC_API_KEY only:**
+Then provide the appropriate command based on what the user provided in Step 1:
+
+**If user provided OPENAI_API_KEY only:**
 ```bash
-#!/bin/bash
-claude mcp add vulnicheck -e ANTHROPIC_API_KEY='<INSERT_USER_PROVIDED_KEY_HERE>' -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+claude mcp add vulnicheck -e OPENAI_API_KEY=<INSERT_USER_PROVIDED_KEY_HERE> -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
 ```
 
-**For BOTH keys:**
+**If user provided ANTHROPIC_API_KEY only:**
 ```bash
-#!/bin/bash
-claude mcp add vulnicheck -e OPENAI_API_KEY='<INSERT_OPENAI_KEY_HERE>' -e ANTHROPIC_API_KEY='<INSERT_ANTHROPIC_KEY_HERE>' -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+claude mcp add vulnicheck -e ANTHROPIC_API_KEY=<INSERT_USER_PROVIDED_KEY_HERE> -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
 ```
 
-**For no keys:**
+**If user provided BOTH keys:**
 ```bash
-#!/bin/bash
+claude mcp add vulnicheck -e OPENAI_API_KEY=<INSERT_OPENAI_KEY_HERE> -e ANTHROPIC_API_KEY=<INSERT_ANTHROPIC_KEY_HERE> -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
+
+**If user skipped or provided no keys:**
+```bash
 claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
 ```
-
-2. **Make it executable** using Bash tool: `chmod +x /tmp/install-vulnicheck.sh`
-
-3. **Tell the user**:
-```
-I've created an installation script for you. Please run this command in your terminal:
-
-/tmp/install-vulnicheck.sh
-```
-
-4. **After user confirms installation**, use Bash tool to clean up: `rm /tmp/install-vulnicheck.sh`
 
 
 ### Step 3: Request Claude Code Restart
@@ -83,8 +74,8 @@ The VulniCheck MCP server will be available after you restart Claude Code.
 ## Notes for Agents
 
 - Replace `<INSERT_USER_PROVIDED_KEY_HERE>` with the actual API key values the user provides
-- The script approach completely avoids line-breaking issues with long API keys
-- Claude creates the script, but the USER must execute it
-- Always clean up the temporary script after successful installation
-- If the user reports that the command failed, help them troubleshoot
+- **IMPORTANT**: Always warn users about potential line breaks in the command
+- API keys should NOT have quotes around them when using -e flag
+- The entire command must be on ONE LINE for it to work properly
+- If the user reports that the command failed, first check if line breaks were the issue
 - The MCP server will not be available until Claude Code is restarted by the USER

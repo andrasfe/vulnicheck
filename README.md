@@ -10,7 +10,7 @@ VulniCheck provides comprehensive security analysis for Python projects and GitH
 **MCP servers can execute code on your system. Only install MCP servers from trusted sources after reviewing their code and understanding the permissions they require.**
 
 The simplest way to get started is to ask claude:
-Hey Claude, follow instructions at https://github.com/andrasfe/vulnicheck/CLAUDE_INSTALL.md to install this MCP server.
+Hey Claude, follow instructions at https://raw.githubusercontent.com/andrasfe/vulnicheck/refs/heads/main/CLAUDE_INSTALL.md to install this MCP server.
 
 
 ## Usage
