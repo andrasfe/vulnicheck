@@ -1,6 +1,8 @@
 # CLAUDE_INSTALL.md - Installation Instructions for Agents
 
-This file contains step-by-step instructions for installing the VulniCheck MCP server into Claude Code.
+This file contains instructions for how Claude/agents should respond when users ask to install VulniCheck.
+
+**CORE PRINCIPLE**: Claude must NEVER attempt to run installation commands. Claude must only INSTRUCT the user to run commands in their own terminal.
 
 ## Installation Steps
 
@@ -23,43 +25,47 @@ Please provide your API key(s) or type "skip" to continue without them:
 
 ### Step 2: Have the Human Run the Installation Command
 
-**⚠️ IMPORTANT FOR CLAUDE/AGENTS**: The following commands MUST be run by the USER in their terminal. DO NOT attempt to run these commands yourself. Instead, tell the user:
+**⚠️ IMPORTANT FOR CLAUDE/AGENTS**: You should create an installation script to avoid line-breaking issues with long API keys.
 
-```
-Please run the following command in your terminal to install VulniCheck:
-```
+Follow these steps:
 
-Based on what the user provided in Step 1, provide ONE of these commands:
+1. **Create the installation script** using the Write tool to create `/tmp/install-vulnicheck.sh` with the appropriate content based on what the user provided:
 
-**If user provided OPENAI_API_KEY only:**
+**For OPENAI_API_KEY only:**
 ```bash
-cat <<'EOF' | bash
+#!/bin/bash
 claude mcp add vulnicheck -e OPENAI_API_KEY='<INSERT_USER_PROVIDED_KEY_HERE>' -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
-EOF
 ```
 
-**If user provided ANTHROPIC_API_KEY only:**
+**For ANTHROPIC_API_KEY only:**
 ```bash
-cat <<'EOF' | bash
+#!/bin/bash
 claude mcp add vulnicheck -e ANTHROPIC_API_KEY='<INSERT_USER_PROVIDED_KEY_HERE>' -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
-EOF
 ```
 
-**If user provided BOTH keys:**
+**For BOTH keys:**
 ```bash
-cat <<'EOF' | bash
+#!/bin/bash
 claude mcp add vulnicheck -e OPENAI_API_KEY='<INSERT_OPENAI_KEY_HERE>' -e ANTHROPIC_API_KEY='<INSERT_ANTHROPIC_KEY_HERE>' -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
-EOF
 ```
 
-**If user skipped or provided no keys:**
+**For no keys:**
 ```bash
+#!/bin/bash
 claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
 ```
 
-**How this works**: The `cat <<'EOF' | bash` pattern creates a heredoc that can span multiple lines. The shell will read everything until it finds `EOF` on its own line, treating line breaks inside as part of the text, not command breaks. The single quotes around 'EOF' prevent variable expansion, keeping the API keys safe.
+2. **Make it executable** using Bash tool: `chmod +x /tmp/install-vulnicheck.sh`
 
-**⚠️ REMINDER**: These commands are for the USER to run in their terminal, not for you (Claude) to execute!
+3. **Tell the user**:
+```
+I've created an installation script for you. Please run this command in your terminal:
+
+/tmp/install-vulnicheck.sh
+```
+
+4. **After user confirms installation**, use Bash tool to clean up: `rm /tmp/install-vulnicheck.sh`
+
 
 ### Step 3: Request Claude Code Restart
 
@@ -77,8 +83,8 @@ The VulniCheck MCP server will be available after you restart Claude Code.
 ## Notes for Agents
 
 - Replace `<INSERT_USER_PROVIDED_KEY_HERE>` with the actual API key values the user provides
-- **IMPORTANT**: API keys should NOT have quotes around them when using -e flag
-- Each command MUST be provided as a SINGLE LINE to prevent shell errors
+- The script approach completely avoids line-breaking issues with long API keys
+- Claude creates the script, but the USER must execute it
+- Always clean up the temporary script after successful installation
 - If the user reports that the command failed, help them troubleshoot
 - The MCP server will not be available until Claude Code is restarted by the USER
-- **CRITICAL**: All commands in this document are for the USER to run manually. NEVER attempt to execute these commands yourself!
