@@ -29,22 +29,30 @@ Based on what the user provided in Step 1, ask the human to run ONE of these com
 
 **If user provided OPENAI_API_KEY only:**
 ```bash
-claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck --env 'OPENAI_API_KEY="<INSERT_USER_PROVIDED_KEY_HERE>"'
+claude mcp add vulnicheck -- uvx \
+--from git+https://github.com/andrasfe/vulnicheck.git vulnicheck \
+--env 'OPENAI_API_KEY="<INSERT_USER_PROVIDED_KEY_HERE>"'
 ```
 
 **If user provided ANTHROPIC_API_KEY only:**
 ```bash
-claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck --env 'ANTHROPIC_API_KEY="<INSERT_USER_PROVIDED_KEY_HERE>"'
+claude mcp add vulnicheck -- uvx \
+--from git+https://github.com/andrasfe/vulnicheck.git vulnicheck \
+--env 'ANTHROPIC_API_KEY="<INSERT_USER_PROVIDED_KEY_HERE>"'
 ```
 
 **If user provided BOTH keys:**
 ```bash
-claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck --env 'OPENAI_API_KEY="<INSERT_USER_PROVIDED_KEY_HERE>"' --env 'ANTHROPIC_API_KEY="<INSERT_USER_PROVIDED_KEY_HERE>"'
+claude mcp add vulnicheck -- uvx \
+--from git+https://github.com/andrasfe/vulnicheck.git vulnicheck \
+--env 'OPENAI_API_KEY="<INSERT_USER_PROVIDED_KEY_HERE>"' \
+--env 'ANTHROPIC_API_KEY="<INSERT_USER_PROVIDED_KEY_HERE>"'
 ```
 
 **If user skipped or provided no keys:**
 ```bash
-claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+claude mcp add vulnicheck -- uvx \
+--from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
 ```
 
 ### Step 3: Request Claude Code Restart
