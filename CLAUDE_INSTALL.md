@@ -1,8 +1,28 @@
 # CLAUDE_INSTALL.md - Installation Instructions for Agents
 
-This file contains instructions for how Claude/agents should respond when users ask to install VulniCheck.
+**CRITICAL**: When a user asks to install VulniCheck, you MUST follow these EXACT instructions. Do NOT improvise or create your own commands.
 
-**CORE PRINCIPLE**: Claude must NEVER attempt to run installation commands. Claude must only INSTRUCT the user to run commands in their own terminal.
+## EXAMPLE OF WHAT TO DO:
+
+When user says: "Hey Claude, follow instructions at https://github.com/andrasfe/vulnicheck/CLAUDE_INSTALL.md to install this MCP server"
+
+You should respond EXACTLY like this:
+```
+Would you like to provide API keys for enhanced vulnerability checking? (Optional but recommended)
+
+You can provide either:
+- OPENAI_API_KEY (for OpenAI-based risk assessment)
+- ANTHROPIC_API_KEY (for Anthropic-based risk assessment)
+- Both keys (the system will use whichever is available)
+- Or skip this step if you don't want enhanced features
+
+Please provide your API key(s) or type "skip" to continue without them:
+```
+
+Then after they respond, give them the EXACT command from below.
+
+**WRONG COMMAND**: `claude mcp add vulnicheck` (This will NOT work!)
+**CORRECT COMMAND**: Must include `uvx --from git+https://github.com/andrasfe/vulnicheck.git`
 
 ## Installation Steps
 
@@ -25,17 +45,16 @@ Please provide your API key(s) or type "skip" to continue without them:
 
 ### Step 2: Have the Human Run the Installation Command
 
-**⚠️ IMPORTANT FOR CLAUDE/AGENTS**: Simply provide the installation command to the user. Do NOT attempt to run it yourself.
+**DO NOT MAKE UP YOUR OWN COMMANDS!** You MUST use these EXACT commands:
 
-Tell the user:
+Tell the user EXACTLY this:
 ```
 To install VulniCheck, please run the following command in your terminal:
 
-⚠️ WARNING: Due to IDE display, the command below may appear broken across multiple lines.
-If you see line breaks in the command, please remove them so the entire command is on ONE LINE before running it.
+⚠️ WARNING: The command may appear broken across multiple lines. Make sure it's all on ONE LINE before running.
 ```
 
-Then provide the appropriate command based on what the user provided in Step 1:
+Then provide the EXACT command based on what they said in Step 1:
 
 **If user provided OPENAI_API_KEY only:**
 ```bash
