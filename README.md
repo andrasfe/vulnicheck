@@ -6,45 +6,17 @@ VulniCheck provides comprehensive security analysis for Python projects and GitH
 
 ### Installation for Claude Code
 
-The simplest way to get started is to let Claude Code handle the installation:
+The simplest way to get started is to let Claude Code install by pointing it to this URL:
 
 ```
-Ask Claude Code: "Install VulniCheck MCP server for comprehensive security scanning"
+Hey Claude, follow these instructions:
 ```
 
 Claude will:
-1. Ask for your API keys (optional but recommended)
-2. Run: `claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck`
-3. Configure environment variables
-4. Test the installation
+1. Ask for your API keys (optional but recommended). Eithe OPENAI_API_KEY or ANTHROPIC_API_KEY.
+2. Run: `claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck` --env <insert here>
+3. Ask user to exit/restart claude code
 
-### Manual Installation
-
-If you prefer manual setup:
-
-```bash
-# Install with uvx (recommended)
-claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
-
-# Or clone and install locally
-git clone https://github.com/andrasfe/vulnicheck.git
-cd vulnicheck
-./run-local.sh
-```
-
-### Optional API Keys (Recommended)
-
-Set these environment variables for enhanced features:
-
-```bash
-# For better rate limits
-export NVD_API_KEY=your-nvd-key        # Get free key: https://nvd.nist.gov/developers/request-an-api-key
-export GITHUB_TOKEN=your-github-token  # Get token: https://github.com/settings/tokens
-
-# For AI-powered security analysis
-export OPENAI_API_KEY=your-openai-key      # Or use Anthropic instead
-# export ANTHROPIC_API_KEY=your-anthropic-key
-```
 
 ## Usage
 
