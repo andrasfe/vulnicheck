@@ -157,7 +157,7 @@ Add to your Claude MCP settings at `~/Library/Application Support/Claude/claude_
 
 Use the CLI to add the server:
 ```bash
-claude mcp add vulnicheck -- /path/to/vulnicheck/.venv/bin/python -m vulnicheck.server
+claude mcp add vulnicheck -e OPENAI_API_KEY="..." -- /path/to/vulnicheck/.venv/bin/python -m vulnicheck.server
 ```
 
 Or with environment variables:

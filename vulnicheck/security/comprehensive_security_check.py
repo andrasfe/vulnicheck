@@ -592,7 +592,8 @@ Project context:
             )
 
             # Extract risk level from assessment
-            risk_level = "high"  # Default
+            # If no findings, default to low risk
+            risk_level = "low" if len(all_findings) == 0 else "medium"  # Better default
             assessment_text = safety_assessment.get("assessment", "")
             if isinstance(assessment_text, str):
                 if "critical" in assessment_text.lower():
@@ -601,7 +602,7 @@ Project context:
                     risk_level = "high"
                 elif "medium" in assessment_text.lower():
                     risk_level = "medium"
-                elif "low" in assessment_text.lower():
+                elif "low" in assessment_text.lower() or "no" in assessment_text.lower() or "safe" in assessment_text.lower():
                     risk_level = "low"
 
             return {
