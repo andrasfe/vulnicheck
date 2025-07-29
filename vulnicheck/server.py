@@ -2095,15 +2095,17 @@ async def comprehensive_security_check(
         _ensure_clients_initialized()
         comprehensive_checker = ComprehensiveSecurityCheck(github_scanner=github_scanner)
 
-    # Check if LLM is configured
-    if not comprehensive_checker.has_llm_configured():
-        return """❌ **No LLM Configured**
+    # Check if LLM is configured, prompt if needed
+    if not comprehensive_checker.prompt_for_api_key():
+        return """❌ **LLM API Key Required**
 
 This tool requires an LLM for comprehensive analysis and recommendations.
 
 Please configure one of:
-- `OPENAI_API_KEY` - For OpenAI models
+- `OPENAI_API_KEY` - For OpenAI models  
 - `ANTHROPIC_API_KEY` - For Anthropic models
+
+You can set these as environment variables or provide them when prompted.
 
 Without an LLM, you can still use individual security tools:
 - `scan_dependencies` - Check dependency vulnerabilities
@@ -2767,43 +2769,74 @@ def install_vulnicheck_guide() -> str:
     """
     return """# 🛡️ VulniCheck Installation Guide
 
-## Automatic Installation (Recommended)
+## When User Asks to Install VulniCheck
 
-The easiest way to install VulniCheck is to ask Claude Code:
+When a user requests: **"Install VulniCheck MCP server for comprehensive security scanning"**
 
-**"Install VulniCheck MCP server for comprehensive security scanning"**
+Follow this sequence:
 
-Claude will help you:
-1. Check prerequisites
-2. Collect optional API keys
-3. Run the installation command
-4. Test the setup
+### Step 1: Ask for LLM Provider
+```
+For the best security analysis experience, I can configure an LLM API key.
+Which provider would you like to use?
+1. OpenAI (recommended)
+2. Anthropic  
+3. Skip (basic features only)
 
-## Manual Installation
-
-If you prefer manual setup:
-
-```bash
-# Basic installation (no API keys)
-claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
-
-# With API keys for enhanced features
-claude mcp add vulnicheck \\
-  -e NVD_API_KEY=your-nvd-key \\
-  -e GITHUB_TOKEN=your-github-token \\
-  -e OPENAI_API_KEY=your-openai-key \\
-  -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+Your choice (1/2/3):
 ```
 
-## Optional API Keys (Recommended)
+### Step 2: Collect API Key (if chosen)
+If they choose OpenAI or Anthropic, ask:
+```
+Please provide your [PROVIDER] API key:
+(This will be stored securely in your MCP configuration)
+```
 
-These keys improve rate limits and enable AI-powered features:
+### Step 3: Run Installation Command
 
-- **NVD_API_KEY**: Get free key at https://nvd.nist.gov/developers/request-an-api-key
-- **GITHUB_TOKEN**: Create token at https://github.com/settings/tokens
-- **OPENAI_API_KEY** or **ANTHROPIC_API_KEY**: For AI-powered security analysis
+**For OpenAI:**
+```bash
+claude mcp add vulnicheck -e OPENAI_API_KEY=user-provided-key -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
 
-## After Installation
+**For Anthropic:**
+```bash
+claude mcp add vulnicheck -e ANTHROPIC_API_KEY=user-provided-key -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
+
+**For skip/no API key:**
+```bash
+claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
+
+### Step 4: Test Installation
+After installation, test with:
+```
+"Run a comprehensive security check on my project"
+```
+
+## Optional Additional API Keys
+
+For enhanced features, users can later add:
+- **NVD_API_KEY**: Better rate limits (get free at https://nvd.nist.gov/developers/request-an-api-key)
+- **GITHUB_TOKEN**: Private repo access (create at https://github.com/settings/tokens)
+
+## Manual Installation Alternative
+
+If users prefer manual setup:
+
+```bash
+# Basic installation
+claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+
+# With full API keys
+claude mcp add vulnicheck \\
+  -e OPENAI_API_KEY=your-key \\
+  -e NVD_API_KEY=your-nvd-key \\
+  -e GITHUB_TOKEN=your-github-token \\
+  -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
 
 1. **Restart Claude Code** to activate VulniCheck
 2. **Add to .gitignore**: Add `.vulnicheck/` to your project's .gitignore

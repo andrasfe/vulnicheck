@@ -180,6 +180,7 @@ tests/integration/mcp_test_*.log
 # Environment variables
 .env.local
 .env.*.local
+.env
 
 # API keys
 *api_key*
