@@ -1,12 +1,34 @@
 # CLAUDE_INSTALL.md - Installation Instructions for Agents
 
-**CRITICAL**: When a user asks to install VulniCheck, you MUST follow these EXACT instructions. Do NOT improvise or create your own commands.
+## ⚠️ CRITICAL INSTRUCTION FOR CLAUDE ⚠️
 
-## EXAMPLE OF WHAT TO DO:
+If you (Claude) are reading this file because a user asked you to install VulniCheck, you must:
+1. **NEVER** use the Bash tool
+2. **NEVER** run any commands yourself
+3. **ONLY** tell the user what commands THEY should run
+4. The user must run the commands, NOT you
+
+**STOP! DO NOT USE THE BASH TOOL! DO NOT RUN ANY COMMANDS YOURSELF!**
+
+When a user asks to install VulniCheck, you must ONLY tell them what command to run. You must NOT attempt to run any commands using the Bash tool.
+
+## WHAT NOT TO DO:
+- ❌ DO NOT use Bash tool
+- ❌ DO NOT run `claude mcp add` yourself
+- ❌ DO NOT check for files
+- ❌ DO NOT run `uvx` yourself
+- ❌ DO NOT try to install anything yourself
+
+## WHAT TO DO:
+- ✅ ONLY provide instructions for the USER to run
+- ✅ Tell the USER to run commands in THEIR terminal
+- ✅ Wait for the USER to confirm they ran the command
+
+## EXAMPLE RESPONSE:
 
 When user says: "Hey Claude, follow instructions at https://github.com/andrasfe/vulnicheck/CLAUDE_INSTALL.md to install this MCP server"
 
-You should respond EXACTLY like this:
+You should respond EXACTLY like this (DO NOT RUN ANY COMMANDS):
 ```
 Would you like to provide API keys for enhanced vulnerability checking? (Optional but recommended)
 
@@ -19,10 +41,7 @@ You can provide either:
 Please provide your API key(s) or type "skip" to continue without them:
 ```
 
-Then after they respond, give them the EXACT command from below.
-
-**WRONG COMMAND**: `claude mcp add vulnicheck` (This will NOT work!)
-**CORRECT COMMAND**: Must include `uvx --from git+https://github.com/andrasfe/vulnicheck.git`
+Then after they respond, TELL THEM (do not run) the command from below.
 
 ## Installation Steps
 
@@ -43,18 +62,18 @@ Please provide your API key(s) or type "skip" to continue without them:
 
 **IMPORTANT**: Store whatever the user provides. If they say "skip" or provide nothing, that's fine - continue to Step 2.
 
-### Step 2: Have the Human Run the Installation Command
+### Step 2: Give the Human the Installation Command
 
-**DO NOT MAKE UP YOUR OWN COMMANDS!** You MUST use these EXACT commands:
+**REMEMBER: DO NOT RUN THESE COMMANDS YOURSELF! ONLY TELL THE USER TO RUN THEM!**
 
-Tell the user EXACTLY this:
+Say to the user:
 ```
-To install VulniCheck, please run the following command in your terminal:
+To install VulniCheck, YOU need to run the following command in YOUR terminal (not me):
 
 ⚠️ WARNING: The command may appear broken across multiple lines. Make sure it's all on ONE LINE before running.
 ```
 
-Then provide the EXACT command based on what they said in Step 1:
+Then TELL THEM (do not run) the appropriate command:
 
 **If user provided OPENAI_API_KEY only:**
 ```bash
