@@ -148,7 +148,7 @@ class ComprehensiveSecurityCheck:
             "conversation_id": id(self.context)
         }
 
-    async def continue_conversation(self, user_response: str, conversation_id: int | None = None) -> dict[str, Any]:
+    async def continue_conversation(self, user_response: str, conversation_id: str | None = None) -> dict[str, Any]:
         """
         Continue the conversation based on user response.
 

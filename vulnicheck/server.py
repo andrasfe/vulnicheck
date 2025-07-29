@@ -2030,7 +2030,7 @@ You should evaluate based on your risk aversion whether this is a safe thing to 
 
 
 # Store active comprehensive security check sessions
-_comprehensive_sessions: dict[int, ComprehensiveSecurityCheck] = {}
+_comprehensive_sessions: dict[str, ComprehensiveSecurityCheck] = {}
 
 
 @mcp.tool
@@ -2056,7 +2056,7 @@ async def comprehensive_security_check(
         ),
     ] = None,
     session_id: Annotated[
-        int | None,
+        str | None,
         Field(
             description="Session ID from previous interaction (only for 'continue' action)",
             default=None,
@@ -2123,7 +2123,9 @@ Without an LLM, you can still use individual security tools:
 
             # Store session if successful
             if "conversation_id" in result:
-                _comprehensive_sessions[result["conversation_id"]] = checker
+                session_id = str(result["conversation_id"])
+                _comprehensive_sessions[session_id] = checker
+                result["conversation_id"] = session_id
 
             # Format response
             lines = ["## 🔒 Comprehensive Security Check Started", ""]
