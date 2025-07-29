@@ -9,7 +9,6 @@ This module provides an interactive security assessment that:
 5. Generates comprehensive security report with recommendations
 """
 
-import getpass
 import json
 import logging
 import os
@@ -90,42 +89,9 @@ class ComprehensiveSecurityCheck:
         """Check if an LLM is configured for analysis."""
         return bool(os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
 
-    def prompt_for_api_key(self) -> bool:
-        """Prompt user for LLM API key if not configured."""
-        if self.has_llm_configured():
-            return True
-
-        print("🔑 LLM API Key Required")
-        print("This tool requires an LLM for comprehensive analysis.")
-        print("Supported options:")
-        print("  - OPENAI_API_KEY (for OpenAI models)")
-        print("  - ANTHROPIC_API_KEY (for Anthropic models)")
-        print()
-
-        choice = input("Do you want to provide an API key? (y/n): ").lower().strip()
-        if choice not in ['y', 'yes']:
-            return False
-
-        provider_choice = input("Which provider? (openai/anthropic): ").lower().strip()
-
-        if provider_choice.startswith('openai'):
-            api_key = getpass.getpass("Enter your OpenAI API key: ")
-            if api_key.strip():
-                os.environ["OPENAI_API_KEY"] = api_key.strip()
-                print("✅ OpenAI API key configured for this session")
-                return True
-        elif provider_choice.startswith('anthropic'):
-            api_key = getpass.getpass("Enter your Anthropic API key: ")
-            if api_key.strip():
-                os.environ["ANTHROPIC_API_KEY"] = api_key.strip()
-                print("✅ Anthropic API key configured for this session")
-                return True
-        else:
-            print("❌ Invalid provider choice")
-            return False
-
-        print("❌ No valid API key provided")
-        return False
+    def check_api_key(self) -> bool:
+        """Check if LLM API key is configured (non-interactive for MCP context)."""
+        return self.has_llm_configured()
 
     def _is_github_url(self, url: str) -> bool:
         """Check if the provided string is a GitHub URL."""
@@ -148,7 +114,7 @@ class ComprehensiveSecurityCheck:
         Returns:
             Initial question or discovery results
         """
-        if not self.prompt_for_api_key():
+        if not self.check_api_key():
             return {
                 "error": "LLM API key required but not provided. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY to use this tool.",
                 "status": "error"

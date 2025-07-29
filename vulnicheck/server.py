@@ -2095,8 +2095,8 @@ async def comprehensive_security_check(
         _ensure_clients_initialized()
         comprehensive_checker = ComprehensiveSecurityCheck(github_scanner=github_scanner)
 
-    # Check if LLM is configured, prompt if needed
-    if not comprehensive_checker.prompt_for_api_key():
+    # Check if LLM is configured
+    if not comprehensive_checker.check_api_key():
         return """❌ **LLM API Key Required**
 
 This tool requires an LLM for comprehensive analysis and recommendations.
