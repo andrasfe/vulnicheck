@@ -10,27 +10,22 @@ from typing import Annotated, Any, cast
 from fastmcp import FastMCP
 from pydantic import Field
 
-from .circl_client import CIRCLClient
-from .comprehensive_security_check import ComprehensiveSecurityCheck
-from .conversation_storage import ConversationStorage
-from .docker_scanner import DockerScanner
-from .github_client import GitHubClient
-from .github_scanner import GitHubRepoScanner
-from .mcp_passthrough_interactive import (
+from .clients import CIRCLClient, GitHubClient, NVDClient, OSVClient, SafetyDBClient
+from .core import get_mcp_paths_for_agent
+from .mcp import (
+    ConversationStorage,
+    MCPValidator,
     get_interactive_passthrough,
     mcp_passthrough_interactive,
+    unified_mcp_passthrough,
 )
-from .mcp_passthrough_with_approval import (
-    mcp_passthrough_tool_with_approval as unified_mcp_passthrough,
+from .scanners import (
+    DependencyScanner,
+    DockerScanner,
+    GitHubRepoScanner,
+    SecretsScanner,
 )
-from .mcp_paths import get_mcp_paths_for_agent
-from .mcp_validator import MCPValidator
-from .nvd_client import NVDClient
-from .osv_client import OSVClient
-from .safety_advisor import SafetyAdvisor
-from .safety_db_client import SafetyDBClient
-from .scanner import DependencyScanner
-from .secrets_scanner import SecretsScanner
+from .security import ComprehensiveSecurityCheck, SafetyAdvisor
 
 # Configure logging to stderr to avoid interfering with JSON-RPC on stdout
 logging.basicConfig(
@@ -1199,7 +1194,7 @@ async def list_mcp_servers(
     Returns a list of configured MCP servers and their available tools.
     """
     try:
-        from .mcp_passthrough import get_passthrough
+        from .mcp.mcp_passthrough import get_passthrough
 
         passthrough = await get_passthrough(agent_name)
         available = await passthrough.get_available_servers()
@@ -2559,7 +2554,7 @@ async def scan_github_repo(
 
     try:
         # Convert depth string to enum
-        from .github_scanner import ScanConfig, ScanDepth
+        from .scanners.github_scanner import ScanConfig, ScanDepth
 
         depth_map = {
             "quick": ScanDepth.QUICK,
@@ -2761,6 +2756,75 @@ async def scan_github_repo(
     except Exception as e:
         logger.error(f"Error scanning GitHub repository: {e}")
         return f"❌ **Error scanning repository**: {str(e)}\n\nPlease check the repository URL and try again."
+
+
+@mcp.tool()
+def install_vulnicheck_guide() -> str:
+    """
+    Installation guide for Claude Code users who want to install VulniCheck.
+
+    Provides step-by-step instructions for installing VulniCheck MCP server.
+    """
+    return """# 🛡️ VulniCheck Installation Guide
+
+## Automatic Installation (Recommended)
+
+The easiest way to install VulniCheck is to ask Claude Code:
+
+**"Install VulniCheck MCP server for comprehensive security scanning"**
+
+Claude will help you:
+1. Check prerequisites
+2. Collect optional API keys
+3. Run the installation command
+4. Test the setup
+
+## Manual Installation
+
+If you prefer manual setup:
+
+```bash
+# Basic installation (no API keys)
+claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+
+# With API keys for enhanced features
+claude mcp add vulnicheck \\
+  -e NVD_API_KEY=your-nvd-key \\
+  -e GITHUB_TOKEN=your-github-token \\
+  -e OPENAI_API_KEY=your-openai-key \\
+  -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
+
+## Optional API Keys (Recommended)
+
+These keys improve rate limits and enable AI-powered features:
+
+- **NVD_API_KEY**: Get free key at https://nvd.nist.gov/developers/request-an-api-key
+- **GITHUB_TOKEN**: Create token at https://github.com/settings/tokens
+- **OPENAI_API_KEY** or **ANTHROPIC_API_KEY**: For AI-powered security analysis
+
+## After Installation
+
+1. **Restart Claude Code** to activate VulniCheck
+2. **Add to .gitignore**: Add `.vulnicheck/` to your project's .gitignore
+3. **Test it**: Ask "Run a comprehensive security check on my project"
+
+## Usage Examples
+
+Once installed, you can use VulniCheck with natural language:
+
+- "Run a comprehensive security check on my project"
+- "Scan https://github.com/owner/repo for vulnerabilities"
+- "Check if numpy has any security issues"
+- "Scan this directory for exposed secrets"
+- "Analyze my Dockerfile for security problems"
+
+## Support
+
+- **Documentation**: https://github.com/andrasfe/vulnicheck
+- **Issues**: https://github.com/andrasfe/vulnicheck/issues
+
+VulniCheck provides comprehensive security analysis including dependency vulnerabilities, exposed secrets, Docker security, and AI-powered risk assessment."""
 
 
 def main() -> None:

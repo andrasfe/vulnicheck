@@ -5,12 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from vulnicheck.dangerous_commands_risk_config import RiskLevel
-from vulnicheck.mcp_passthrough_interactive import (
+from vulnicheck.mcp.mcp_passthrough_interactive import (
     MCPPassthroughInteractive,
     PendingOperation,
     get_interactive_passthrough,
 )
+from vulnicheck.security.dangerous_commands_risk_config import RiskLevel
 
 
 @pytest.fixture
@@ -292,7 +292,7 @@ class TestMCPPassthroughInteractive:
     async def test_risk_assessment_creation(self, mock_passthrough):
         """Test risk assessment is properly created."""
         with patch(
-            "vulnicheck.mcp_passthrough_interactive.get_dangerous_commands_risk_config"
+            "vulnicheck.security.dangerous_commands_risk_config.get_dangerous_commands_risk_config"
         ) as mock_config:
             # Mock the config
             mock_pattern = MagicMock()

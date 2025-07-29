@@ -4,7 +4,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
-from .rate_limiter import get_nvd_rate_limiter
+from ..core.rate_limiter import get_nvd_rate_limiter
 
 
 class CVSSData(BaseModel):

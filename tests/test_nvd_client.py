@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import httpx
 import pytest
 
-from vulnicheck.nvd_client import (
+from vulnicheck.clients.nvd_client import (
     CVEDetail,
     CVSSData,
     NVDClient,
@@ -170,8 +170,8 @@ class TestNVDClient:
     @pytest.fixture
     def client(self):
         with (
-            patch("vulnicheck.nvd_client.httpx.Client") as mock_client_class,
-            patch("vulnicheck.nvd_client.get_nvd_rate_limiter") as mock_rate_limiter,
+            patch("vulnicheck.clients.nvd_client.httpx.Client") as mock_client_class,
+            patch("vulnicheck.clients.nvd_client.get_nvd_rate_limiter") as mock_rate_limiter,
         ):
             mock_client = Mock()
             mock_client_class.return_value = mock_client
@@ -186,8 +186,8 @@ class TestNVDClient:
     @pytest.fixture
     def client_with_api_key(self):
         with (
-            patch("vulnicheck.nvd_client.httpx.Client") as mock_client_class,
-            patch("vulnicheck.nvd_client.get_nvd_rate_limiter") as mock_rate_limiter,
+            patch("vulnicheck.clients.nvd_client.httpx.Client") as mock_client_class,
+            patch("vulnicheck.clients.nvd_client.get_nvd_rate_limiter") as mock_rate_limiter,
         ):
             mock_client = Mock()
             mock_client_class.return_value = mock_client

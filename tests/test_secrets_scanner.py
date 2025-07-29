@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vulnicheck.secrets_scanner import SecretsScanner, SecretsScanResult
+from vulnicheck.scanners.secrets_scanner import SecretsScanner, SecretsScanResult
 
 
 class TestSecretsScanResult:

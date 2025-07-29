@@ -9,7 +9,7 @@ as fallback.
 import logging
 from typing import Any
 
-from .llm_risk_assessor import get_risk_assessor
+from ..security.llm_risk_assessor import get_risk_assessor
 
 logger = logging.getLogger(__name__)
 

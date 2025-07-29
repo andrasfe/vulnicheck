@@ -5,7 +5,7 @@ These tests make real API calls to osv.dev.
 
 import pytest
 
-from vulnicheck.osv_client import OSVClient, Vulnerability
+from vulnicheck.clients.osv_client import OSVClient, Vulnerability
 
 
 @pytest.mark.integration

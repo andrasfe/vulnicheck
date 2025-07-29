@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .agent_detector import AgentDetector
+from ..core.agent_detector import AgentDetector
 
 logger = logging.getLogger(__name__)
 

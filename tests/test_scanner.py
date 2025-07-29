@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from vulnicheck.scanner import DependencyScanner
+from vulnicheck.scanners.scanner import DependencyScanner
 
 
 class TestDependencyScanner:

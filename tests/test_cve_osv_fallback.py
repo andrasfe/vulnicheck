@@ -2,7 +2,7 @@
 
 import pytest
 
-from vulnicheck.osv_client import Vulnerability
+from vulnicheck.clients.osv_client import Vulnerability
 from vulnicheck.server import _format_osv_vulnerability
 
 

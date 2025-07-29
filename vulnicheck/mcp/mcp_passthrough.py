@@ -13,10 +13,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .agent_detector import detect_agent
+from ..core.agent_detector import detect_agent
+from ..core.logging_config import configure_mcp_logging
+from ..security.dangerous_commands_config import get_dangerous_commands_config
 from .conversation_storage import ConversationStorage
-from .dangerous_commands_config import get_dangerous_commands_config
-from .logging_config import configure_mcp_logging
 from .mcp_client import MCPClient, MCPConnection
 from .mcp_config_cache import MCPConfigCache
 

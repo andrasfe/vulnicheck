@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from vulnicheck.scanner import DependencyScanner
+from vulnicheck.scanners.scanner import DependencyScanner
 
 
 @pytest.fixture

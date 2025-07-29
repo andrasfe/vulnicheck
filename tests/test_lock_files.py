@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from vulnicheck.scanner import DependencyScanner
+from vulnicheck.scanners.scanner import DependencyScanner
 
 
 class TestLockFileParsing:

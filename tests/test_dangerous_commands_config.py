@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from vulnicheck.dangerous_commands_config import (
+from vulnicheck.security.dangerous_commands_config import (
     DangerousCommandsConfig,
     get_dangerous_commands_config,
 )
@@ -359,10 +359,10 @@ class TestGlobalConfigInstance:
         # Should return the same instance
         assert config1 is config2
 
-    @patch("vulnicheck.dangerous_commands_config._config_instance", None)
+    @patch("vulnicheck.security.dangerous_commands_config._config_instance", None)
     def test_global_instance_creation(self):
         """Test that global instance is created on first access."""
-        from vulnicheck.dangerous_commands_config import _config_instance
+        from vulnicheck.security.dangerous_commands_config import _config_instance
 
         assert _config_instance is None
 
@@ -370,7 +370,7 @@ class TestGlobalConfigInstance:
         assert config is not None
 
         # Check it was set globally
-        from vulnicheck.dangerous_commands_config import (
+        from vulnicheck.security.dangerous_commands_config import (
             _config_instance as updated_instance,
         )
 

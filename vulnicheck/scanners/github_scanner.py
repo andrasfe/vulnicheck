@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from vulnicheck.docker_scanner import DockerScanner
-from vulnicheck.scanner import DependencyScanner
-from vulnicheck.secrets_scanner import SecretsScanner
+from .docker_scanner import DockerScanner
+from .scanner import DependencyScanner
+from .secrets_scanner import SecretsScanner
 
 logger = logging.getLogger(__name__)
 

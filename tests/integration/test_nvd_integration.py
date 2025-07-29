@@ -8,7 +8,7 @@ from datetime import datetime
 
 import pytest
 
-from vulnicheck.nvd_client import CVEDetail, NVDClient
+from vulnicheck.clients.nvd_client import CVEDetail, NVDClient
 
 
 @pytest.mark.integration

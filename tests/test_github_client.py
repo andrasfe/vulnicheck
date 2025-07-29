@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from vulnicheck.github_client import (
+from vulnicheck.clients.github_client import (
     GitHubAdvisory,
     GitHubClient,
 )

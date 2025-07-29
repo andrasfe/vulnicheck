@@ -12,13 +12,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from .agent_detector import detect_agent
-from .conversation_storage import ConversationStorage
-from .dangerous_commands_risk_config import (
+from ..core.agent_detector import detect_agent
+from ..security.dangerous_commands_risk_config import (
     DangerousPattern,
     RiskLevel,
     get_dangerous_commands_risk_config,
 )
+from .conversation_storage import ConversationStorage
 from .mcp_passthrough import MCPPassthrough
 
 logger = logging.getLogger(__name__)

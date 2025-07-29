@@ -5,7 +5,7 @@ import httpx
 import pytest
 from packaging.version import Version
 
-from vulnicheck.osv_client import OSVClient, Vulnerability
+from vulnicheck.clients.osv_client import OSVClient, Vulnerability
 
 
 class TestVulnerability:
@@ -34,7 +34,7 @@ class TestVulnerability:
 class TestOSVClient:
     @pytest.fixture
     def client(self):
-        with patch("vulnicheck.osv_client.httpx.AsyncClient") as mock_client_class:
+        with patch("vulnicheck.clients.osv_client.httpx.AsyncClient") as mock_client_class:
             mock_client = Mock()
             mock_client_class.return_value = mock_client
             client = OSVClient(timeout=10)
@@ -126,7 +126,7 @@ class TestOSVClient:
         )
         mock_response.raise_for_status = Mock()
 
-        with patch("vulnicheck.osv_client.httpx.AsyncClient") as mock_async_client:
+        with patch("vulnicheck.clients.osv_client.httpx.AsyncClient") as mock_async_client:
             mock_client_instance = AsyncMock()
             mock_client_instance.post.return_value = mock_response
             mock_async_client.return_value = mock_client_instance

@@ -7,14 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import vulnicheck.mcp_passthrough_with_approval as approval_module
-from vulnicheck.dangerous_commands_risk_config import RiskLevel
-from vulnicheck.mcp_passthrough_with_approval import (
+import vulnicheck.mcp.mcp_passthrough_with_approval as approval_module
+from vulnicheck.mcp.mcp_passthrough_with_approval import (
     ApprovalRequest,
     ApprovalResponse,
     MCPPassthroughWithApproval,
     mcp_passthrough_tool_with_approval,
 )
+from vulnicheck.security.dangerous_commands_risk_config import RiskLevel
 
 
 @pytest.fixture
@@ -86,10 +86,10 @@ class TestMCPPassthroughWithApproval:
         mock_assessor.enabled = False
 
         with patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
         ), patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
             return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(enable_real_connections=False)
@@ -121,10 +121,10 @@ class TestMCPPassthroughWithApproval:
         mock_assessor.enabled = False
 
         with patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
         ), patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
             return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(enable_real_connections=False)
@@ -158,10 +158,10 @@ class TestMCPPassthroughWithApproval:
         mock_assessor.enabled = False
 
         with patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
         ), patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
             return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
@@ -196,10 +196,10 @@ class TestMCPPassthroughWithApproval:
         mock_assessor.enabled = False
 
         with patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
         ), patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
             return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
@@ -233,10 +233,10 @@ class TestMCPPassthroughWithApproval:
         mock_assessor.enabled = False
 
         with patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
         ), patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
             return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
@@ -269,10 +269,10 @@ class TestMCPPassthroughWithApproval:
         mock_assessor.enabled = False
 
         with patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
         ), patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
             return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(
@@ -302,7 +302,7 @@ class TestMCPPassthroughWithApproval:
         original_callback = approval_module.claude_approval_callback
         try:
             # Import the original default callback
-            from vulnicheck.mcp_passthrough_with_approval import (
+            from vulnicheck.mcp.mcp_passthrough_with_approval import (
                 default_approval_callback,
             )
             approval_module.claude_approval_callback = default_approval_callback
@@ -334,7 +334,7 @@ class TestMCPPassthroughWithApproval:
         original_callback = approval_module.claude_approval_callback
         try:
             # Import the original default callback
-            from vulnicheck.mcp_passthrough_with_approval import (
+            from vulnicheck.mcp.mcp_passthrough_with_approval import (
                 default_approval_callback,
             )
             approval_module.claude_approval_callback = default_approval_callback
@@ -378,11 +378,11 @@ class TestMCPPassthroughWithApproval:
 
         with (
             patch(
-                "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
+                "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
                 return_value=mock_config,
             ),
             patch(
-                "vulnicheck.mcp_passthrough_with_approval.MCPPassthroughWithApproval",
+                "vulnicheck.mcp.mcp_passthrough_with_approval.MCPPassthroughWithApproval",
                 return_value=mock_passthrough,
             ),
         ):
@@ -439,10 +439,10 @@ class TestMCPPassthroughWithApproval:
         mock_assessor.enabled = False
 
         with patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
             return_value=mock_config,
         ), patch(
-            "vulnicheck.mcp_passthrough_with_approval.get_risk_assessor",
+            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
             return_value=mock_assessor,
         ):
             passthrough = MCPPassthroughWithApproval(

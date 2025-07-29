@@ -4,15 +4,15 @@ Tests for the MCP approval integration.
 
 import pytest
 
-from vulnicheck.dangerous_commands_risk_config import RiskLevel
-from vulnicheck.mcp_approval_integration import (
+from vulnicheck.mcp.mcp_approval_integration import (
     MCPApprovalIntegration,
     get_mcp_integration,
     mcp_approval_callback,
 )
-from vulnicheck.mcp_passthrough_with_approval import (
+from vulnicheck.mcp.mcp_passthrough_with_approval import (
     ApprovalRequest,
 )
+from vulnicheck.security.dangerous_commands_risk_config import RiskLevel
 
 
 class TestMCPApprovalIntegration:

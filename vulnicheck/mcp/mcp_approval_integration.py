@@ -12,7 +12,7 @@ import logging
 # Import types only to avoid circular import
 from typing import TYPE_CHECKING, Any, Optional
 
-from .dangerous_commands_risk_config import RiskLevel
+from ..security.dangerous_commands_risk_config import RiskLevel
 
 if TYPE_CHECKING:
     from .mcp_passthrough_with_approval import ApprovalRequest, ApprovalResponse
@@ -272,7 +272,7 @@ def _initialize_callback() -> None:
     ApprovalResponse = _ApprovalResponse  # type: ignore[misc]
 
     # Set the approval callback
-    import vulnicheck.mcp_passthrough_with_approval as passthrough_module
+    from . import mcp_passthrough_with_approval as passthrough_module
 
     passthrough_module.mcp_approval_callback = mcp_approval_callback
     passthrough_module.claude_approval_callback = mcp_approval_callback

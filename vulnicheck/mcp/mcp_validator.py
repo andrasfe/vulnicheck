@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .mcp_paths import find_existing_mcp_configs
+from ..core.mcp_paths import find_existing_mcp_configs
 
 logger = logging.getLogger("vulnicheck.mcp_validator")
 

@@ -1,6 +1,6 @@
 import pytest
 
-from vulnicheck.cache import VulnerabilityCache
+from vulnicheck.core.cache import VulnerabilityCache
 
 
 class TestVulnerabilityCache:

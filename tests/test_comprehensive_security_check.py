@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from vulnicheck.comprehensive_security_check import (
+from vulnicheck.security.comprehensive_security_check import (
     ComprehensiveSecurityCheck,
     ConversationContext,
     ConversationState,

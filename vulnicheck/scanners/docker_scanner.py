@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .scanner import DependencyScanner
+from ..scanners.scanner import DependencyScanner
 
 logger = logging.getLogger(__name__)
 

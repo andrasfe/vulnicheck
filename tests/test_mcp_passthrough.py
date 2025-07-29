@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from vulnicheck.mcp_passthrough import MCPPassthrough, mcp_passthrough_tool
+from vulnicheck.mcp.mcp_passthrough import MCPPassthrough, mcp_passthrough_tool
 
 
 class TestMCPPassthrough:

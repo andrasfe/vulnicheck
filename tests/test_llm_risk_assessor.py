@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from httpx import Response
 
-from vulnicheck.llm_risk_assessor import LLMRiskAssessor, get_risk_assessor
+from vulnicheck.security.llm_risk_assessor import LLMRiskAssessor, get_risk_assessor
 
 
 @pytest.fixture

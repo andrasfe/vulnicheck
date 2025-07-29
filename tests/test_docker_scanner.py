@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from vulnicheck.docker_scanner import DockerScanner
-from vulnicheck.scanner import DependencyScanner
+from vulnicheck.scanners.docker_scanner import DockerScanner
+from vulnicheck.scanners.scanner import DependencyScanner
 
 
 @pytest.fixture

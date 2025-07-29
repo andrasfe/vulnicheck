@@ -299,7 +299,7 @@ class ConversationStorage:
             if matching_messages:
                 results.append({
                     "conversation": conv_summary,
-                    "matching_messages": [msg.dict() for msg in matching_messages[:5]],
+                    "matching_messages": [msg.model_dump() for msg in matching_messages[:5]],
                     "total_matches": len(matching_messages)
                 })
 
@@ -355,7 +355,7 @@ class ConversationStorage:
         """Save a conversation to disk."""
         conversation_file = self.storage_dir / f"{conversation.id}.json"
         with open(conversation_file, "w") as f:
-            json.dump(conversation.dict(), f, indent=2, default=str)
+            json.dump(conversation.model_dump(), f, indent=2, default=str)
 
     def _update_index_timestamp(self, conversation_id: str) -> None:
         """Update the timestamp in the index for a conversation."""

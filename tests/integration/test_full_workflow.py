@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from vulnicheck.nvd_client import NVDClient
-from vulnicheck.osv_client import OSVClient
-from vulnicheck.scanner import DependencyScanner
+from vulnicheck.clients.nvd_client import NVDClient
+from vulnicheck.clients.osv_client import OSVClient
+from vulnicheck.scanners.scanner import DependencyScanner
 
 
 @pytest.mark.integration

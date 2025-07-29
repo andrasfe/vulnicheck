@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from vulnicheck.github_scanner import (
+from vulnicheck.scanners.github_scanner import (
     GitHubRepoInfo,
     GitHubRepoScanner,
     ScanConfig,

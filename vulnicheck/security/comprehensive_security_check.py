@@ -18,8 +18,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .mcp_paths import check_mcp_exists_anywhere
-from .safety_advisor import SafetyAdvisor
+from ..core.mcp_paths import check_mcp_exists_anywhere
+from ..security.safety_advisor import SafetyAdvisor
 
 logger = logging.getLogger(__name__)
 

@@ -17,13 +17,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .agent_detector import detect_agent
-from .conversation_storage import ConversationStorage
-from .dangerous_commands_risk_config import (
+from ..core.agent_detector import detect_agent
+from ..security.dangerous_commands_risk_config import (
     RiskLevel,
     get_dangerous_commands_risk_config,
 )
-from .llm_risk_assessor import get_risk_assessor
+from ..security.llm_risk_assessor import get_risk_assessor
+from .conversation_storage import ConversationStorage
 from .mcp_client import MCPClient
 from .mcp_config_cache import MCPConfigCache
 

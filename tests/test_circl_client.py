@@ -1,6 +1,6 @@
 import pytest
 
-from vulnicheck.circl_client import CIRCLClient, CIRCLVulnerability
+from vulnicheck.clients.circl_client import CIRCLClient, CIRCLVulnerability
 
 
 class TestCIRCLClient:

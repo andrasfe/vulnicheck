@@ -5,8 +5,8 @@ import json
 import httpx
 import pytest
 
-from vulnicheck.mcp_client import HTTPTransport, MCPClient, MCPConnection
-from vulnicheck.mcp_config_cache import MCPServerConfig
+from vulnicheck.mcp.mcp_client import HTTPTransport, MCPClient, MCPConnection
+from vulnicheck.mcp.mcp_config_cache import MCPServerConfig
 
 
 class TestHTTPTransport:
@@ -39,7 +39,7 @@ class TestHTTPTransport:
 
         # Patch uuid to return predictable ID
         from unittest.mock import patch
-        with patch("vulnicheck.mcp_client.uuid4", return_value="test-id"):
+        with patch("vulnicheck.mcp.mcp_client.uuid4", return_value="test-id"):
             result = await transport.request("tools/list", None)
             assert result == response_data
 

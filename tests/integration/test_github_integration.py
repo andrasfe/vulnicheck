@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from vulnicheck.github_client import GitHubClient
+from vulnicheck.clients.github_client import GitHubClient
 
 
 @pytest.mark.integration

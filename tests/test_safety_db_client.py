@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import httpx
 import pytest
 
-from vulnicheck.safety_db_client import SafetyDBClient, SafetyDBVulnerability
+from vulnicheck.clients.safety_db_client import SafetyDBClient, SafetyDBVulnerability
 
 
 class TestSafetyDBClient:

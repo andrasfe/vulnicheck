@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from vulnicheck.safety_advisor import SafetyAdvisor, assess_operation_safety
+from vulnicheck.security.safety_advisor import SafetyAdvisor, assess_operation_safety
 
 
 class TestSafetyAdvisor:
@@ -165,7 +165,7 @@ class TestSafetyAdvisor:
     @pytest.mark.asyncio
     async def test_assess_operation_safety_function(self):
         """Test the main entry point function."""
-        with patch('vulnicheck.safety_advisor.SafetyAdvisor') as mock_advisor_class:
+        with patch('vulnicheck.security.safety_advisor.SafetyAdvisor') as mock_advisor_class:
             mock_advisor = MagicMock()
             mock_advisor.assess_operation = AsyncMock(return_value={
                 "assessment": "Test assessment",
@@ -186,7 +186,7 @@ class TestSafetyAdvisor:
 
     def test_initialization(self):
         """Test SafetyAdvisor initialization."""
-        with patch('vulnicheck.safety_advisor.get_risk_assessor') as mock_get_assessor:
+        with patch('vulnicheck.security.safety_advisor.get_risk_assessor') as mock_get_assessor:
             mock_assessor = MagicMock()
             mock_assessor.enabled = True
             mock_get_assessor.return_value = mock_assessor
@@ -198,7 +198,7 @@ class TestSafetyAdvisor:
 
     def test_initialization_no_llm(self):
         """Test SafetyAdvisor initialization without LLM."""
-        with patch('vulnicheck.safety_advisor.get_risk_assessor') as mock_get_assessor:
+        with patch('vulnicheck.security.safety_advisor.get_risk_assessor') as mock_get_assessor:
             mock_assessor = MagicMock()
             mock_assessor.enabled = False
             mock_get_assessor.return_value = mock_assessor

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from vulnicheck.conversation_storage import (
+from vulnicheck.mcp.conversation_storage import (
     Conversation,
     ConversationMessage,
     ConversationStorage,

@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from vulnicheck.dangerous_commands_config import DangerousCommandsConfig
-from vulnicheck.mcp_passthrough import MCPPassthrough, mcp_passthrough_tool
+from vulnicheck.mcp.mcp_passthrough import MCPPassthrough, mcp_passthrough_tool
+from vulnicheck.security.dangerous_commands_config import DangerousCommandsConfig
 
 
 class TestMCPPassthroughConfigIntegration:

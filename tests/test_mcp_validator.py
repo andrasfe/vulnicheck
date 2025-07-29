@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from vulnicheck.mcp_validator import MCPValidator
+from vulnicheck.mcp.mcp_validator import MCPValidator
 
 
 def test_mcp_scan_policy_loading():
@@ -18,7 +18,7 @@ def test_mcp_scan_policy_loading():
     import tempfile
     from pathlib import Path
 
-    from vulnicheck.mcp_validator import EMBEDDED_POLICY_GR
+    from vulnicheck.mcp.mcp_validator import EMBEDDED_POLICY_GR
 
     if "mcp_scan" in sys.modules:
         del sys.modules["mcp_scan"]
