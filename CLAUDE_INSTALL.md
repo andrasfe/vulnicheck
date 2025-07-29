@@ -21,9 +21,9 @@ Please provide your API key(s) or type "skip" to continue without them:
 
 **IMPORTANT**: Store whatever the user provides. If they say "skip" or provide nothing, that's fine - continue to Step 2.
 
-### Step 2: Run the Installation Command
+### Step 2: Human to run the installation command
 
-Based on what the user provided in Step 1, run ONE of these commands:
+Based on what the user provided in Step 1, ask the human to run ONE of these commands from a shell:
 
 **If user provided OPENAI_API_KEY only:**
 ```bash
