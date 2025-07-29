@@ -2102,7 +2102,7 @@ async def comprehensive_security_check(
 This tool requires an LLM for comprehensive analysis and recommendations.
 
 Please configure one of:
-- `OPENAI_API_KEY` - For OpenAI models  
+- `OPENAI_API_KEY` - For OpenAI models
 - `ANTHROPIC_API_KEY` - For Anthropic models
 
 You can set these as environment variables or provide them when prompted.
@@ -2780,7 +2780,7 @@ Follow this sequence:
 For the best security analysis experience, I can configure an LLM API key.
 Which provider would you like to use?
 1. OpenAI (recommended)
-2. Anthropic  
+2. Anthropic
 3. Skip (basic features only)
 
 Your choice (1/2/3):

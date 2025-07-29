@@ -9,10 +9,10 @@ This module provides an interactive security assessment that:
 5. Generates comprehensive security report with recommendations
 """
 
+import getpass
 import json
 import logging
 import os
-import getpass
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -94,20 +94,20 @@ class ComprehensiveSecurityCheck:
         """Prompt user for LLM API key if not configured."""
         if self.has_llm_configured():
             return True
-            
+
         print("🔑 LLM API Key Required")
         print("This tool requires an LLM for comprehensive analysis.")
         print("Supported options:")
         print("  - OPENAI_API_KEY (for OpenAI models)")
         print("  - ANTHROPIC_API_KEY (for Anthropic models)")
         print()
-        
+
         choice = input("Do you want to provide an API key? (y/n): ").lower().strip()
         if choice not in ['y', 'yes']:
             return False
-            
+
         provider_choice = input("Which provider? (openai/anthropic): ").lower().strip()
-        
+
         if provider_choice.startswith('openai'):
             api_key = getpass.getpass("Enter your OpenAI API key: ")
             if api_key.strip():
@@ -123,7 +123,7 @@ class ComprehensiveSecurityCheck:
         else:
             print("❌ Invalid provider choice")
             return False
-            
+
         print("❌ No valid API key provided")
         return False
 

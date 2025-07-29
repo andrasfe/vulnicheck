@@ -63,10 +63,10 @@ class TestComprehensiveSecurityCheck:
     @pytest.mark.asyncio
     async def test_start_conversation_no_llm(self, security_checker):
         """Test starting conversation without LLM configured."""
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), patch('builtins.input', return_value='n'):
             result = await security_checker.start_conversation()
             assert result["status"] == "error"
-            assert "No LLM configured" in result["error"]
+            assert "LLM API key required" in result["error"]
 
     @pytest.mark.asyncio
     async def test_start_conversation_with_path(self, security_checker, mock_project_path):

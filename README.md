@@ -6,16 +6,11 @@ VulniCheck provides comprehensive security analysis for Python projects and GitH
 
 ### Installation for Claude Code
 
-The simplest way to get started is to let Claude Code install by pointing it to this URL:
+[!CAUTION]
+**MCP servers can execute code on your system. Only install MCP servers from trusted sources after reviewing their code and understanding the permissions they require.**
 
-```
-Hey Claude, follow these instructions:
-```
-
-Claude will:
-1. Ask for your API keys (optional but recommended). Eithe OPENAI_API_KEY or ANTHROPIC_API_KEY.
-2. Run: `claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck` --env <insert here>
-3. Ask user to exit/restart claude code
+The simplest way to get started is to ask claude:
+Hey Claude, follow instructions at https://github.com/andrasfe/vulnicheck/CLAUDE_INSTALL.md to install this MCP server.
 
 
 ## Usage
@@ -25,14 +20,14 @@ Once installed, simply ask Claude Code:
 ```
 "Run a comprehensive security check on my project"
 
-"Run a comprehensive security check on https://github.com/owner/repo" 
+"Run a comprehensive security check on https://github.com/owner/repo"
 
 "Check this directory for security vulnerabilities"
 ```
 
 VulniCheck will:
 - ✅ Scan dependencies for known vulnerabilities
-- ✅ Detect exposed secrets and credentials  
+- ✅ Detect exposed secrets and credentials
 - ✅ Analyze Dockerfiles for security issues
 - ✅ Validate MCP configurations
 - ✅ Generate AI-powered risk assessments
