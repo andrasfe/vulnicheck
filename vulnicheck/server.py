@@ -2035,33 +2035,10 @@ _comprehensive_sessions: dict[str, ComprehensiveSecurityCheck] = {}
 
 @mcp.tool
 async def comprehensive_security_check(
-    action: Annotated[
-        str,
-        Field(
-            description="Action to perform: 'start' to begin a new check, 'continue' to continue an interactive session"
-        ),
-    ],
-    project_path: Annotated[
-        str | None,
-        Field(
-            description="Project path to check (only for 'start' action). Defaults to current directory.",
-            default=None,
-        ),
-    ] = None,
-    response: Annotated[
-        str | None,
-        Field(
-            description="User response to continue the conversation (only for 'continue' action)",
-            default=None,
-        ),
-    ] = None,
-    session_id: Annotated[
-        str | None,
-        Field(
-            description="Session ID from previous interaction (only for 'continue' action)",
-            default=None,
-        ),
-    ] = None,
+    action: str,
+    project_path: str = "",
+    response: str = "",
+    session_id: str = ""
 ) -> str:
     """Comprehensive interactive security check (requires LLM configuration).
 
@@ -2073,6 +2050,12 @@ async def comprehensive_security_check(
     5. Generating a comprehensive report with risk scoring and recommendations
 
     REQUIRES: OPENAI_API_KEY or ANTHROPIC_API_KEY to be configured.
+
+    Args:
+        action: Action to perform: 'start' to begin a new check, 'continue' to continue an interactive session
+        project_path: Project path to check (only for 'start' action). Defaults to current directory.
+        response: User response to continue the conversation (only for 'continue' action)
+        session_id: Session ID from previous interaction (only for 'continue' action)
 
     Usage:
     - First call: action='start' with optional project_path
@@ -2119,7 +2102,9 @@ Without an LLM, you can still use individual security tools:
             # Start new session
             _ensure_clients_initialized()
             checker = ComprehensiveSecurityCheck(github_scanner=github_scanner)
-            result = await checker.start_conversation(project_path)
+            # Handle empty string as None
+            path = project_path if project_path else None
+            result = await checker.start_conversation(path)
 
             # Store session if successful
             if "conversation_id" in result:
@@ -2153,7 +2138,7 @@ Without an LLM, you can still use individual security tools:
             if not response:
                 return "❌ Please provide a response to continue the conversation."
 
-            if session_id is None:
+            if not session_id:
                 return "❌ Please provide the session_id from the previous interaction."
 
             # Get session
