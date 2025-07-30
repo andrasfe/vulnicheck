@@ -200,10 +200,13 @@ async def mcp_approval_callback(request: "ApprovalRequest") -> "ApprovalResponse
     logger.info(
         f"MCP approval requested for: {request.server_name}.{request.tool_name}"
     )
-    logger.info(f"Risk level: {request.risk_assessment['risk_level']}")
-    logger.info(f"Risk description: {request.risk_assessment['description']}")
 
-    risk_level = request.risk_assessment["risk_level"]
+    # Safely access risk_assessment fields
+    risk_level = request.risk_assessment.get("risk_level", "UNKNOWN")
+    risk_description = request.risk_assessment.get("description", "No description available")
+
+    logger.info(f"Risk level: {risk_level}")
+    logger.info(f"Risk description: {risk_description}")
 
     # Decision logic based on risk level and context
     if risk_level == RiskLevel.HIGH_RISK.value:

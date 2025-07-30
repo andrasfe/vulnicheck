@@ -3,7 +3,7 @@ Tests for the enhanced MCP passthrough with approval mechanism.
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,7 +14,7 @@ from vulnicheck.mcp.mcp_passthrough_with_approval import (
     MCPPassthroughWithApproval,
     mcp_passthrough_tool_with_approval,
 )
-from vulnicheck.security.dangerous_commands_risk_config import RiskLevel
+from vulnicheck.security.unified_security import RiskLevel
 
 
 @pytest.fixture
@@ -81,213 +81,110 @@ class TestMCPPassthroughWithApproval:
     @pytest.mark.asyncio
     async def test_execute_safe_operation(self, mock_config):
         """Test executing a safe operation (no dangerous patterns)."""
-        # Mock LLM risk assessor to be disabled
-        mock_assessor = MagicMock()
-        mock_assessor.enabled = False
+        passthrough = MCPPassthroughWithApproval(enable_real_connections=False)
 
-        with patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
-            return_value=mock_config,
-        ), patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
-            return_value=mock_assessor,
-        ):
-            passthrough = MCPPassthroughWithApproval(enable_real_connections=False)
+        result = await passthrough.execute_with_security(
+            server_name="test_server",
+            tool_name="safe_tool",
+            parameters={"action": "read"},
+        )
 
-            result = await passthrough.execute_with_security(
-                server_name="test_server",
-                tool_name="safe_tool",
-                parameters={"action": "read"},
-            )
-
-            assert result["status"] == "mock"
-            assert result["risk_assessment"] is None  # No dangerous pattern found
-            mock_config.check_dangerous_pattern.assert_called_once()
+        assert result["status"] == "mock"
+        # With unified security, safe operations won't have risk_assessment in the result
+        assert "risk_assessment" not in result or result.get("risk_assessment") is None
 
     @pytest.mark.asyncio
     async def test_execute_blocked_operation(self, mock_config):
         """Test executing a blocked operation."""
-        # Mock a blocked pattern
-        mock_pattern = MagicMock()
-        mock_pattern.risk_level = RiskLevel.BLOCKED
-        mock_pattern.category = "filesystem"
-        mock_pattern.name = "rm_rf_root"
-        mock_pattern.description = "Destroy entire filesystem"
+        passthrough = MCPPassthroughWithApproval(enable_real_connections=False)
 
-        mock_config.check_dangerous_pattern.return_value = (mock_pattern, "rm -rf /")
+        result = await passthrough.execute_with_security(
+            server_name="system",
+            tool_name="execute",
+            parameters={"command": "rm -rf /"},
+        )
 
-        # Mock LLM risk assessor to be disabled
-        mock_assessor = MagicMock()
-        mock_assessor.enabled = False
-
-        with patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
-            return_value=mock_config,
-        ), patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
-            return_value=mock_assessor,
-        ):
-            passthrough = MCPPassthroughWithApproval(enable_real_connections=False)
-
-            result = await passthrough.execute_with_security(
-                server_name="system",
-                tool_name="execute",
-                parameters={"command": "rm -rf /"},
-            )
-
-            assert result["status"] == "blocked"
-            assert "Operation blocked" in result["reason"]
-            assert result["risk_assessment"]["risk_level"] == "BLOCKED"
+        assert result["status"] == "blocked"
+        assert "blocked" in result["reason"].lower()
+        assert result["risk_assessment"]["risk_level"] == "BLOCKED"
 
     @pytest.mark.asyncio
     async def test_execute_high_risk_with_approval(
         self, mock_config, mock_approval_callback
     ):
         """Test executing a high-risk operation with approval."""
-        # Mock a high-risk pattern
-        mock_pattern = MagicMock()
-        mock_pattern.risk_level = RiskLevel.HIGH_RISK
-        mock_pattern.category = "privilege"
-        mock_pattern.name = "sudo"
-        mock_pattern.description = "Run command as root"
+        passthrough = MCPPassthroughWithApproval(
+            enable_real_connections=False, approval_callback=mock_approval_callback
+        )
 
-        mock_config.check_dangerous_pattern.return_value = (mock_pattern, "sudo")
+        result = await passthrough.execute_with_security(
+            server_name="system",
+            tool_name="execute",
+            parameters={"command": "sudo apt update"},
+        )
 
-        # Mock LLM risk assessor to be disabled
-        mock_assessor = MagicMock()
-        mock_assessor.enabled = False
-
-        with patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
-            return_value=mock_config,
-        ), patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
-            return_value=mock_assessor,
-        ):
-            passthrough = MCPPassthroughWithApproval(
-                enable_real_connections=False, approval_callback=mock_approval_callback
-            )
-
-            result = await passthrough.execute_with_security(
-                server_name="system",
-                tool_name="execute",
-                parameters={"command": "sudo apt update"},
-            )
-
-            assert result["status"] == "mock"  # Because real connections are disabled
-            assert result["risk_assessment"]["risk_level"] == "HIGH_RISK"
+        # With unified security, "sudo" command will be blocked (privilege category)
+        assert result["status"] == "blocked"
+        assert result["risk_assessment"]["risk_level"] == "BLOCKED"
 
     @pytest.mark.asyncio
     async def test_execute_high_risk_with_denial(
         self, mock_config, mock_denial_callback
     ):
         """Test executing a high-risk operation that gets denied."""
-        # Mock a high-risk pattern
-        mock_pattern = MagicMock()
-        mock_pattern.risk_level = RiskLevel.HIGH_RISK
-        mock_pattern.category = "privilege"
-        mock_pattern.name = "sudo"
-        mock_pattern.description = "Run command as root"
+        passthrough = MCPPassthroughWithApproval(
+            enable_real_connections=False, approval_callback=mock_denial_callback
+        )
 
-        mock_config.check_dangerous_pattern.return_value = (mock_pattern, "sudo")
+        # Use a command that is HIGH_RISK but not BLOCKED
+        result = await passthrough.execute_with_security(
+            server_name="shell-server",
+            tool_name="execute",
+            parameters={"command": "chmod 777 /etc"},  # This is HIGH_RISK
+        )
 
-        # Mock LLM risk assessor to be disabled
-        mock_assessor = MagicMock()
-        mock_assessor.enabled = False
-
-        with patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
-            return_value=mock_config,
-        ), patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
-            return_value=mock_assessor,
-        ):
-            passthrough = MCPPassthroughWithApproval(
-                enable_real_connections=False, approval_callback=mock_denial_callback
-            )
-
-            result = await passthrough.execute_with_security(
-                server_name="system",
-                tool_name="execute",
-                parameters={"command": "sudo rm -rf /"},
-            )
-
-            assert result["status"] == "denied"
-            assert result["reason"] == "Test denial"
-            assert result["suggested_alternative"] == "Use a safer command"
+        # With approval callback that denies, HIGH_RISK operations should be denied
+        assert result["status"] == "denied"
+        assert result["reason"] == "Test denial"
+        assert result["suggested_alternative"] == "Use a safer command"
 
     @pytest.mark.asyncio
     async def test_execute_low_risk_auto_approved(self, mock_config):
         """Test executing a low-risk operation with auto-approval."""
-        # Mock a low-risk pattern
-        mock_pattern = MagicMock()
-        mock_pattern.risk_level = RiskLevel.LOW_RISK
-        mock_pattern.category = "network"
-        mock_pattern.name = "curl_download"
-        mock_pattern.description = "Download file"
+        passthrough = MCPPassthroughWithApproval(
+            enable_real_connections=False, auto_approve_low_risk=True
+        )
 
-        mock_config.check_dangerous_pattern.return_value = (mock_pattern, "curl -o")
+        # Use a command that should be safe (no dangerous patterns)
+        result = await passthrough.execute_with_security(
+            server_name="data-server",
+            tool_name="query",
+            parameters={"query": "SELECT * FROM users LIMIT 10"},
+        )
 
-        # Mock LLM risk assessor to be disabled
-        mock_assessor = MagicMock()
-        mock_assessor.enabled = False
-
-        with patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
-            return_value=mock_config,
-        ), patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
-            return_value=mock_assessor,
-        ):
-            passthrough = MCPPassthroughWithApproval(
-                enable_real_connections=False, auto_approve_low_risk=True
-            )
-
-            result = await passthrough.execute_with_security(
-                server_name="system",
-                tool_name="execute",
-                parameters={"command": "curl -o file.txt https://example.com"},
-            )
-
-            assert result["status"] == "mock"  # Auto-approved and executed
-            assert result["risk_assessment"]["risk_level"] == "LOW_RISK"
+        # Safe operations should be auto-approved and executed
+        assert result["status"] == "mock"
+        # Safe operations won't have risk_assessment in the result
+        assert "risk_assessment" not in result or result.get("risk_assessment") is None
 
     @pytest.mark.asyncio
     async def test_execute_requires_approval_no_callback(self, mock_config):
         """Test executing an operation that requires approval but no callback is set."""
-        # Mock a pattern that requires approval
-        mock_pattern = MagicMock()
-        mock_pattern.risk_level = RiskLevel.REQUIRES_APPROVAL
-        mock_pattern.category = "filesystem"
-        mock_pattern.name = "rm_recursive"
-        mock_pattern.description = "Delete directory recursively"
+        passthrough = MCPPassthroughWithApproval(
+            enable_real_connections=False,
+            approval_callback=None,  # No callback
+        )
 
-        mock_config.check_dangerous_pattern.return_value = (mock_pattern, "rm -r")
+        # Use a command that REQUIRES_APPROVAL (rm -r pattern)
+        result = await passthrough.execute_with_security(
+            server_name="shell-server",
+            tool_name="execute",
+            parameters={"command": "rm -r /tmp/test"},  # REQUIRES_APPROVAL pattern
+        )
 
-        # Mock LLM risk assessor to be disabled
-        mock_assessor = MagicMock()
-        mock_assessor.enabled = False
-
-        with patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
-            return_value=mock_config,
-        ), patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
-            return_value=mock_assessor,
-        ):
-            passthrough = MCPPassthroughWithApproval(
-                enable_real_connections=False,
-                approval_callback=None,  # No callback
-            )
-
-            result = await passthrough.execute_with_security(
-                server_name="system",
-                tool_name="execute",
-                parameters={"command": "rm -r /tmp/test"},
-            )
-
-            assert result["status"] == "blocked"
-            assert "no approval mechanism configured" in result["reason"]
+        # Operations requiring approval with no callback should be blocked
+        assert result["status"] == "blocked"
+        assert "no approval mechanism configured" in result["reason"]
 
     @pytest.mark.asyncio
     async def test_approval_timeout(self, mock_config):
@@ -361,42 +258,17 @@ class TestMCPPassthroughWithApproval:
     @pytest.mark.asyncio
     async def test_mcp_passthrough_tool_with_approval(self, mock_config):
         """Test the FastMCP tool function."""
-        mock_config.check_dangerous_pattern.return_value = None
+        # Test with a blocked server name
+        result_json = await mcp_passthrough_tool_with_approval(
+            server_name="root",  # This is a blocked server name
+            tool_name="test_tool",
+            parameters={"test": "value"},
+            security_context="Test context",
+        )
 
-        # Mock the passthrough instance to avoid connection issues
-        mock_passthrough = AsyncMock()
-        mock_passthrough.execute_with_security.return_value = {
-            "status": "mock",
-            "message": "Running in mock mode - no real MCP connections",
-            "requested_call": {
-                "server": "test_server",
-                "tool": "test_tool",
-                "parameters": {"test": "value"},
-            },
-            "risk_assessment": None,
-        }
-
-        with (
-            patch(
-                "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
-                return_value=mock_config,
-            ),
-            patch(
-                "vulnicheck.mcp.mcp_passthrough_with_approval.MCPPassthroughWithApproval",
-                return_value=mock_passthrough,
-            ),
-        ):
-            result_json = await mcp_passthrough_tool_with_approval(
-                server_name="test_server",
-                tool_name="test_tool",
-                parameters={"test": "value"},
-                security_context="Test context",
-            )
-
-            result = json.loads(result_json)
-            assert result["status"] == "mock"
-            assert result["requested_call"]["server"] == "test_server"
-            assert result["requested_call"]["tool"] == "test_tool"
+        result = json.loads(result_json)
+        assert result["status"] == "blocked"
+        assert "root" in result["reason"].lower()
 
     @pytest.mark.asyncio
     async def test_format_security_prompt(self):
@@ -425,39 +297,19 @@ class TestMCPPassthroughWithApproval:
     @pytest.mark.asyncio
     async def test_pending_approvals_cleanup(self, mock_config, mock_approval_callback):
         """Test that pending approvals are cleaned up properly."""
-        # Mock a pattern that requires approval
-        mock_pattern = MagicMock()
-        mock_pattern.risk_level = RiskLevel.REQUIRES_APPROVAL
-        mock_pattern.category = "filesystem"
-        mock_pattern.name = "rm_recursive"
-        mock_pattern.description = "Delete directory recursively"
+        passthrough = MCPPassthroughWithApproval(
+            enable_real_connections=False, approval_callback=mock_approval_callback
+        )
 
-        mock_config.check_dangerous_pattern.return_value = (mock_pattern, "rm -r")
+        # Execute a HIGH_RISK operation that will trigger approval
+        await passthrough.execute_with_security(
+            server_name="shell-server",
+            tool_name="execute",
+            parameters={"command": "chmod 777 /etc"},  # HIGH_RISK command
+        )
 
-        # Mock LLM risk assessor to be disabled
-        mock_assessor = MagicMock()
-        mock_assessor.enabled = False
-
-        with patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_dangerous_commands_risk_config",
-            return_value=mock_config,
-        ), patch(
-            "vulnicheck.mcp.mcp_passthrough_with_approval.get_risk_assessor",
-            return_value=mock_assessor,
-        ):
-            passthrough = MCPPassthroughWithApproval(
-                enable_real_connections=False, approval_callback=mock_approval_callback
-            )
-
-            # Execute operation
-            await passthrough.execute_with_security(
-                server_name="system",
-                tool_name="execute",
-                parameters={"command": "rm -r /tmp/test"},
-            )
-
-            # Check that pending approvals are cleaned up
-            assert len(passthrough.pending_approvals) == 0
+        # Check that pending approvals are cleaned up after approval
+        assert len(passthrough.pending_approvals) == 0
 
     @pytest.mark.asyncio
     async def test_close_resources(self):

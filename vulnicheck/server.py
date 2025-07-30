@@ -2847,6 +2847,54 @@ Once installed, you can use VulniCheck with natural language:
 VulniCheck provides comprehensive security analysis including dependency vulnerabilities, exposed secrets, Docker security, and AI-powered risk assessment."""
 
 
+@mcp.tool
+async def manage_trust_store(
+    action: Annotated[
+        str,
+        Field(
+            description="Action to perform - 'list', 'add', 'remove', or 'verify'",
+            default="list"
+        ),
+    ] = "list",
+    server_name: Annotated[
+        str | None,
+        Field(
+            description="Name of the server (required for add/remove/verify)",
+            default=None
+        ),
+    ] = None,
+    config: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description="Server configuration (required for add)",
+            default=None
+        ),
+    ] = None,
+    description: Annotated[
+        str | None,
+        Field(
+            description="Optional description for the server (for add)",
+            default=None
+        ),
+    ] = None,
+) -> str:
+    """Manage the MCP server trust store.
+
+    This tool allows you to view and manage trusted MCP server configurations.
+    The trust store helps prevent unauthorized server configuration changes.
+
+    USE THIS TOOL WHEN:
+    - You need to view trusted MCP servers
+    - You want to add a new server to the trust store
+    - You need to remove an untrusted server
+    - You want to verify if a server configuration is trusted
+
+    Returns a report of the action performed.
+    """
+    from .tools.manage_trust_store import manage_trust_store as _manage_trust_store
+    return await _manage_trust_store(action, server_name, config, description)
+
+
 def main() -> None:
     """Run the MCP server."""
     # Print startup info to stderr to avoid interfering with stdio transport

@@ -48,6 +48,10 @@ VulniCheck will:
 - Python 3.10+
 - Claude Code or compatible MCP client
 
+## Known Limitations & TODO
+
+- **setup.py files**: Currently not supported for dependency scanning. The scanner only supports `requirements.txt`, `pyproject.toml`, and lock files. Projects using `setup.py` for dependency management will need to generate a `requirements.txt` file or migrate to `pyproject.toml`.
+
 ## Support
 
 - **Documentation**: See [DETAILS.md](DETAILS.md) for complete documentation

@@ -89,7 +89,8 @@ class DangerousCommandsRiskConfig:
                     pattern_name = pattern_name.strip()
 
                     # Parse value: pattern|risk_level|description
-                    parts = value.split("|")
+                    # Use rsplit to handle patterns that contain pipes
+                    parts = value.rsplit("|", 2)  # Split from right, max 2 splits
                     if len(parts) != 3:
                         logger.warning(
                             f"Invalid value format at line {line_num}: {value}"

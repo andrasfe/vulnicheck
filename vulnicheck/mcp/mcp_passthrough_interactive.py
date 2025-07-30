@@ -13,11 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ..core.agent_detector import detect_agent
-from ..security.dangerous_commands_risk_config import (
-    DangerousPattern,
-    RiskLevel,
-    get_dangerous_commands_risk_config,
-)
+from ..security import RiskLevel, get_integrated_security
 from .conversation_storage import ConversationStorage
 from .mcp_passthrough import MCPPassthrough
 
@@ -76,6 +72,9 @@ class MCPPassthroughInteractive:
         # Conversation storage will be initialized on first use
         self._conversation_storage: ConversationStorage | None = None
         self._active_conversations: dict[str, str] = {}  # server -> conversation_id
+
+        # Initialize unified security
+        self.security = get_integrated_security(strict_mode=False)
 
         logger.info(
             f"Initialized interactive MCP passthrough for agent: {self.agent_name}"
@@ -140,6 +139,17 @@ class MCPPassthroughInteractive:
         # Clean up expired operations
         self._cleanup_expired_operations()
 
+        # Perform unified security assessment
+        # Get server config if available for trust validation
+        server_config = None
+        if self.base_passthrough and self.base_passthrough.config_cache:
+            try:
+                config = await self.base_passthrough.config_cache.get_server_config(self.agent_name, server_name)
+                if config:
+                    server_config = config.model_dump(exclude_none=True)
+            except Exception as e:
+                logger.warning(f"Could not get server config for security check: {e}")
+
         # Check if this operation was previously approved
         for request_id, approved_op in list(self.approved_operations.items()):
             if (
@@ -166,94 +176,112 @@ class MCPPassthroughInteractive:
                 )
                 return response
 
-        # Check for dangerous patterns
-        config = get_dangerous_commands_risk_config()
-        check_str = json.dumps(
-            {"server": server_name, "tool": tool_name, "params": parameters}
-        ).lower()
+        # Perform unified security assessment
+        assessment = await self.security.assess_request(
+            server_name=server_name,
+            tool_name=tool_name,
+            parameters=parameters,
+            server_config=server_config,
+            security_context=security_context,
+        )
 
-        result = config.check_dangerous_pattern(check_str)
+        # Handle assessment results
+        if assessment.is_blocked:
+            # Convert assessment to risk_assessment dict for compatibility
+            risk_assessment = {
+                "risk_level": assessment.risk_level.value,
+                "category": "unified_security",
+                "pattern_name": "unified_assessment",
+                "matched_text": f"{server_name}.{tool_name}",
+                "description": assessment.explanation,
+                "risk_explanation": assessment.explanation,
+                "server_name": server_name,
+                "tool_name": tool_name,
+                "specific_risks": assessment.specific_risks,
+            }
 
-        if result:
-            pattern, matched_text = result
-            risk_assessment = self._create_risk_assessment(
-                server_name, tool_name, pattern, matched_text, config
-            )
-
-            if pattern.risk_level == RiskLevel.BLOCKED:
-                # Always block these operations
-                response = {
-                    "status": "blocked",
-                    "reason": f"Operation blocked: {pattern.description}",
-                    "risk_assessment": risk_assessment,
-                }
-                # Log response to conversation
-                storage.add_response(
+            # Always block these operations
+            response = {
+                "status": "blocked",
+                "reason": assessment.explanation,
+                "risk_assessment": risk_assessment,
+            }
+            # Log response to conversation
+            storage.add_response(
                     conversation_id=conversation_id,
                     client=self.agent_name,
                     server=server_name,
                     tool=tool_name,
                     result=response,
                     risk_assessment=risk_assessment
-                )
-                return response
+            )
+            return response
 
-            elif pattern.risk_level in [
-                RiskLevel.HIGH_RISK,
-                RiskLevel.REQUIRES_APPROVAL,
-            ]:
-                # Create pending operation
-                operation = PendingOperation(
+        elif assessment.requires_approval:
+            # Create risk assessment dict
+            risk_assessment = {
+                "risk_level": assessment.risk_level.value,
+                "category": "unified_security",
+                "pattern_name": "unified_assessment",
+                "matched_text": f"{server_name}.{tool_name}",
+                "description": assessment.explanation,
+                "risk_explanation": assessment.explanation,
+                "server_name": server_name,
+                "tool_name": tool_name,
+                "specific_risks": assessment.specific_risks,
+            }
+
+            # Create pending operation
+            operation = PendingOperation(
                     server_name=server_name,
                     tool_name=tool_name,
                     parameters=parameters,
                     risk_assessment=risk_assessment,
                     security_context=security_context,
-                )
+            )
 
-                self.pending_operations[operation.request_id] = operation
+            self.pending_operations[operation.request_id] = operation
 
-                # Return approval request
-                approval_request = self._create_approval_request(operation)
-                # Log response to conversation (approval request)
-                storage.add_response(
+            # Return approval request
+            approval_request = self._create_approval_request(operation)
+            # Log response to conversation (approval request)
+            storage.add_response(
                     conversation_id=conversation_id,
                     client=self.agent_name,
                     server=server_name,
                     tool=tool_name,
                     result=approval_request,
                     risk_assessment=risk_assessment
-                )
-                return approval_request
+            )
+            return approval_request
 
-            elif pattern.risk_level == RiskLevel.LOW_RISK:
-                # Log and proceed
-                logger.info(f"LOW_RISK operation detected: {pattern.name}")
-                response = await self._execute_operation(
-                    server_name, tool_name, parameters, risk_assessment
-                )
-                # Log response to conversation
-                storage.add_response(
-                    conversation_id=conversation_id,
-                    client=self.agent_name,
-                    server=server_name,
-                    tool=tool_name,
-                    result=response,
-                    risk_assessment=risk_assessment
-                )
-                return response
+        else:
+            # Safe or low-risk operation - execute normally
+            risk_assessment = None
+            if assessment.risk_level != RiskLevel.SAFE:
+                # Create risk assessment for low-risk operations
+                risk_assessment = {
+                    "risk_level": assessment.risk_level.value,
+                    "category": "unified_security",
+                    "description": assessment.explanation,
+                    "server_name": server_name,
+                    "tool_name": tool_name,
+                }
+                logger.info(f"{assessment.risk_level.value} operation proceeding: {assessment.explanation}")
 
-        # No dangerous patterns, execute normally
-        response = await self._execute_operation(server_name, tool_name, parameters, None)
-        # Log response to conversation
-        storage.add_response(
-            conversation_id=conversation_id,
-            client=self.agent_name,
-            server=server_name,
-            tool=tool_name,
-            result=response
-        )
-        return response
+            response = await self._execute_operation(
+                server_name, tool_name, parameters, risk_assessment
+            )
+            # Log response to conversation
+            storage.add_response(
+                conversation_id=conversation_id,
+                client=self.agent_name,
+                server=server_name,
+                tool=tool_name,
+                result=response,
+                risk_assessment=risk_assessment
+            )
+            return response
 
     async def process_approval(
         self,
@@ -394,27 +422,6 @@ class MCPPassthroughInteractive:
             },
         }
 
-    def _create_risk_assessment(
-        self,
-        server_name: str,
-        tool_name: str,
-        pattern: DangerousPattern,
-        matched_text: str,
-        config: Any,
-    ) -> dict[str, Any]:
-        """Create a risk assessment dictionary."""
-        risk_explanation = config.get_risk_description(pattern.risk_level)
-
-        return {
-            "server_name": server_name,
-            "tool_name": tool_name,
-            "risk_level": pattern.risk_level.value,
-            "category": pattern.category,
-            "pattern_name": pattern.name,
-            "matched_text": matched_text,
-            "description": pattern.description,
-            "risk_explanation": risk_explanation,
-        }
 
     async def _execute_operation(
         self,
@@ -423,7 +430,7 @@ class MCPPassthroughInteractive:
         parameters: dict[str, Any],
         risk_assessment: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        """Execute the actual MCP operation."""
+        """Execute the actual MCP operation with response sanitization."""
         if not self.enable_real_connections:
             return {
                 "status": "mock",
@@ -467,6 +474,13 @@ class MCPPassthroughInteractive:
                     },
                 }
 
+            # Result is already sanitized by base_passthrough.execute_with_security
+            # which uses unified security layer
+
+            # Ensure the result is a dict for type checking
+            if not isinstance(result, dict):
+                result = {"result": result}
+
             # Add risk assessment to successful result
             if risk_assessment:
                 result["risk_assessment"] = risk_assessment
@@ -478,12 +492,13 @@ class MCPPassthroughInteractive:
 
             logger.error(f"Error executing MCP operation: {e}")
             logger.error(f"Full traceback: {traceback.format_exc()}")
-            return {
+            error_result: dict[str, Any] = {
                 "status": "error",
                 "message": str(e),
                 "traceback": traceback.format_exc(),
                 "risk_assessment": risk_assessment,
             }
+            return error_result
 
     def _cleanup_expired_operations(self) -> None:
         """Remove expired operations from pending list."""
@@ -548,6 +563,9 @@ async def mcp_passthrough_interactive(
     - The tool result (for safe operations)
     - An approval request (for risky operations)
     - A blocked response (for dangerous operations)
+
+    Returns:
+        JSON string when called from MCP tools, dict when called directly
     """
     if parameters is None:
         parameters = {}
@@ -560,4 +578,5 @@ async def mcp_passthrough_interactive(
         security_context=security_context,
     )
 
+    # Always return JSON string for MCP tools
     return json.dumps(result, indent=2)

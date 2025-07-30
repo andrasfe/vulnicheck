@@ -109,7 +109,23 @@ docker-compose down
 ### Core Components
 
 1. **MCP Server** (`vulnicheck/server.py`): FastMCP-based server exposing vulnerability checking tools via Model Context Protocol
-   - Tools: `check_package_vulnerabilities`, `scan_dependencies`, `scan_installed_packages`, `get_cve_details`, `scan_for_secrets`, `validate_mcp_security`, `mcp_passthrough_tool`, `scan_dockerfile`, `assess_operation_safety`, `comprehensive_security_check`, `get_mcp_conversations`, `scan_github_repo`
+   - Tools:
+     - `check_package_vulnerabilities`: Check vulnerabilities for a specific Python package
+     - `scan_dependencies`: Scan a dependency file (requirements.txt, pyproject.toml, etc.)
+     - `scan_installed_packages`: Scan currently installed Python packages
+     - `get_cve_details`: Get detailed information about a specific CVE
+     - `scan_for_secrets`: Scan files/directories for exposed secrets and credentials
+     - `validate_mcp_security`: Validate MCP server security configuration
+     - `mcp_passthrough_tool`: Securely proxy MCP tool calls with risk assessment
+     - `approve_mcp_operation`: Approve a pending MCP operation (interactive mode)
+     - `deny_mcp_operation`: Deny a pending MCP operation (interactive mode)
+     - `list_mcp_servers`: List available MCP servers for an agent
+     - `scan_dockerfile`: Analyze Dockerfiles for Python dependency vulnerabilities
+     - `assess_operation_safety`: Pre-operation risk assessment for LLMs
+     - `comprehensive_security_check`: Interactive AI-powered security assessment
+     - `get_mcp_conversations`: Retrieve and search past MCP interactions
+     - `scan_github_repo`: Comprehensive security analysis of GitHub repositories
+     - `install_vulnicheck_guide`: Installation guide for Claude Code users
    - Runs on port 3000 by default (configurable via MCP_PORT env var)
 
 2. **Vulnerability Clients**:
@@ -185,6 +201,25 @@ docker-compose down
    - **Remediation Recommendations**: Provides prioritized action items
    - **Integration**: Leverages existing scanners (DependencyScanner, SecretsScanner, DockerScanner)
 
+14. **Core Utilities** (`vulnicheck/core/`):
+   - `agent_detector.py`: Detects AI agent from environment and headers
+   - `cache.py`: Configurable caching with TTL support
+   - `logging_config.py`: Centralized logging configuration for MCP interactions
+   - `mcp_paths.py`: Manages MCP configuration paths per agent
+   - `rate_limiter.py`: Rate limiting for API calls to external services
+
+15. **Context Protector Integration** (inspired by [Trail of Bits Context Protector](https://blog.trailofbits.com/2025/07/28/we-built-the-security-layer-mcp-always-needed/)):
+   - **Trust Store** (`vulnicheck/mcp/trust_store.py`): Trust-on-first-use server configuration pinning
+   - **Response Sanitizer** (`vulnicheck/security/response_sanitizer.py`): ANSI escape sequence removal and prompt injection detection
+   - **Unified Security Layer** (`vulnicheck/security/unified_security.py`): Combines all security mechanisms into a single API
+   - Features:
+     - Server configuration validation blocks untrusted or modified servers
+     - Pre-execution parameter sanitization
+     - Post-execution response sanitization
+     - Intelligent risk assessment using LLM when available, pattern matching as fallback
+     - Risk levels: BLOCKED, HIGH_RISK, REQUIRES_APPROVAL, LOW_RISK, SAFE
+   - All passthrough variants now use this unified security layer for consistent protection
+
 ### Key Implementation Details
 
 - All clients are initialized lazily to avoid connection issues at startup
@@ -192,6 +227,14 @@ docker-compose down
 - Comprehensive error handling and fallback mechanisms
 - Security-focused with file size limits and path validation
 - Returns vulnerability data with disclaimers about "AS IS" warranty
+- **Unified Security Layer** (`unified_security.py`) - inspired by [Trail of Bits Context Protector](https://blog.trailofbits.com/2025/07/28/we-built-the-security-layer-mcp-always-needed/):
+  - Combines all security mechanisms into a single, consistent API
+  - Trust store validation blocks untrusted or modified server configurations
+  - Pre-execution sanitization of parameters to prevent injection attacks
+  - Post-execution response sanitization removes ANSI codes and prompt injections
+  - Intelligent risk assessment using LLM when available, pattern matching as fallback
+  - Unified risk scoring: BLOCKED, HIGH_RISK, REQUIRES_APPROVAL, LOW_RISK, SAFE
+  - All passthrough variants use this unified layer for consistent security
 - **LLM Risk Assessment** (`llm_risk_assessor.py`):
   - Supports both OpenAI and Anthropic APIs
   - Analyzes MCP requests/responses for security risks
@@ -242,7 +285,7 @@ See the docstring in `mcp_client.py` for more details.
 - All tests run with `uv run` to ensure proper virtual environment usage
 - Makefile includes targets for different test categories (unit, integration, MCP, security, clients)
 - Type checking configured with mypy (strict for production code, relaxed for tests)
-- **Test Status**: 294 unit tests passing, 1 skipped (integration tests requiring API credentials)
+- **Test Status**: 345 unit tests passing, 2 skipped (integration tests requiring API credentials)
 
 ## Important Notes
 
@@ -276,7 +319,7 @@ See the docstring in `mcp_client.py` for more details.
 - Added comprehensive MCP interaction logging with full payload capture
 - Implemented hourly log rotation for MCP logs
 - Fixed test order dependencies that were causing intermittent failures
-- All tests now pass (294 unit tests, 1 skipped) with clean linting and type checking
+- All tests now pass (313 unit tests, 2 skipped) with clean linting and type checking
 - Added pre-commit hooks that run `make lint` and `make test-unit` before commits
 - Added `scan_dockerfile` tool to analyze Dockerfiles for Python dependency vulnerabilities
 - **Implemented LLM-based risk assessment for MCP passthrough**:
@@ -316,6 +359,12 @@ See the docstring in `mcp_client.py` for more details.
   - Supports filtering by client, server, and search queries
   - Active conversations persist for 1 hour to maintain continuity
   - Includes conversation cleanup functionality for old conversations (30+ days)
+- **Recent Bug Fixes (January 2025)**:
+  - Fixed comprehensive_security_check parameter validation for npx compatibility
+  - Fixed session_id validation in comprehensive security check
+  - Fixed risk level display showing HIGH incorrectly when 0 findings exist
+  - Fixed comprehensive security check for MCP server context
+  - Added `install_vulnicheck_guide` tool for Claude Code users
 
 ## Memories
 

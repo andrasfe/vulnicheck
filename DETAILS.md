@@ -968,6 +968,13 @@ If you encounter rate limiting errors:
   - Seamlessly integrates GitHub repository scanning into the interactive workflow
   - Automatically uses the GitHub scanner when a repository URL is provided
   - Maintains the same interactive Q&A experience for both local and remote repos
+- **Integrated Context Protector security features** (inspired by [Trail of Bits blog](https://blog.trailofbits.com/2025/07/28/we-built-the-security-layer-mcp-always-needed/)):
+  - **Unified Security Layer**: Combines trust store, response sanitizer, LLM risk assessment, and dangerous commands into a single consistent API
+  - **Trust Store Enforcement**: Validates MCP server configurations and blocks untrusted servers
+  - **Response Sanitization**: Prevents prompt injection and ANSI escape sequences in responses
+  - **Graceful Degradation**: Falls back to pattern matching when LLM APIs are unavailable
+  - **Unified Risk Scoring**: Consistent risk assessment across all security mechanisms
+  - All passthrough variants (basic, with_approval, interactive) now use the unified security layer
 - Fixed integration tests to properly skip when API credentials are unavailable
 - Updated Makefile to include all test files and proper linting coverage
 - Resolved all type annotation and mypy issues

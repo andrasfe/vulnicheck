@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..core.agent_detector import detect_agent
 from ..core.logging_config import configure_mcp_logging
-from ..security.dangerous_commands_config import get_dangerous_commands_config
+from ..security import RiskLevel, get_integrated_security
 from .conversation_storage import ConversationStorage
 from .mcp_client import MCPClient, MCPConnection
 from .mcp_config_cache import MCPConfigCache
@@ -66,6 +66,14 @@ class MCPConnectionPool:
                 raise ValueError(
                     f"Server '{server_name}' not found in {agent_name} configuration"
                 )
+
+            # Get integrated security to handle trust store
+            security = get_integrated_security()
+            # Convert MCPServerConfig to dict for trust store
+            config_dict = config.model_dump(exclude_none=True)
+
+            # Update trust store through integrated security
+            security.update_trust_store(server_name, config_dict)
 
             # Create new connection
             try:
@@ -173,6 +181,9 @@ class MCPPassthrough:
         self._conversation_storage: ConversationStorage | None = None
         self._active_conversations: dict[str, str] = {}  # server -> conversation_id
 
+        # Initialize integrated security
+        self.security = get_integrated_security(strict_mode=False)
+
         self.security_prompt_template = """
 SECURITY NOTICE: You are about to execute an MCP tool call with the following details:
 - Server: {server_name}
@@ -265,7 +276,7 @@ Please review this operation carefully before proceeding.
             }
         )
 
-        # Build security prompt
+        # Build security prompt for reference
         security_prompt = self.security_prompt_template.format(
             server_name=server_name,
             tool_name=tool_name,
@@ -273,21 +284,27 @@ Please review this operation carefully before proceeding.
             security_context=security_context or "None provided",
         )
 
-        # Get the dangerous commands configuration
-        config = get_dangerous_commands_config()
+        # Perform integrated security assessment
+        # Get server config if available for trust validation
+        server_config = None
+        if self.config_cache:
+            try:
+                config = await self.config_cache.get_server_config(self.agent_name, server_name)
+                if config:
+                    server_config = config.model_dump(exclude_none=True)
+            except Exception as e:
+                logger.warning(f"Could not get server config for security check: {e}")
 
-        # Check parameters for dangerous patterns
-        param_str = json.dumps(parameters)
+        assessment = await self.security.assess_request(
+            server_name=server_name,
+            tool_name=tool_name,
+            parameters=parameters,
+            server_config=server_config,
+            security_context=security_context,
+        )
 
-        # Check the command/tool name itself
-        check_str = f"{server_name} {tool_name} {param_str}"
-
-        # Check for dangerous patterns
-        dangerous_match = config.check_dangerous_pattern(check_str)
-
-        if dangerous_match:
-            category, pattern_name, matched_text = dangerous_match
-
+        # Handle blocked operations
+        if assessment.is_blocked:
             # Log security decision - BLOCKED
             interaction_logger.warning(
                 "MCP_SECURITY_BLOCKED",
@@ -297,18 +314,16 @@ Please review this operation carefully before proceeding.
                     "agent": self.agent_name,
                     "server": server_name,
                     "tool": tool_name,
-                    "category": category,
-                    "pattern": pattern_name,
-                    "matched_text": matched_text,
-                    "risk_level": "BLOCKED",
+                    "risk_level": assessment.risk_level.value,
+                    "assessment": assessment.to_dict(),
                 }
             )
 
             response = {
                 "status": "blocked",
-                "reason": f"Operation blocked due to dangerous pattern in category '{category}': {matched_text}",
-                "pattern": pattern_name,
-                "category": category,
+                "reason": assessment.explanation,
+                "risk_level": assessment.risk_level.value,
+                "specific_risks": assessment.specific_risks,
                 "security_prompt": security_prompt,
             }
 
@@ -336,28 +351,50 @@ Please review this operation carefully before proceeding.
 
             return response
 
-        # Log security decision - ALLOWED (no dangerous patterns)
+        # Log security decision
+        decision = "requires_approval" if assessment.requires_approval else "allowed"
         interaction_logger.info(
-            "MCP_SECURITY_ALLOWED",
+            f"MCP_SECURITY_{decision.upper()}",
             extra={
                 "event": "mcp_security_decision",
-                "decision": "allowed",
+                "decision": decision,
                 "agent": self.agent_name,
                 "server": server_name,
                 "tool": tool_name,
-                "risk_level": "SAFE",
+                "risk_level": assessment.risk_level.value,
+                "assessment": assessment.to_dict(),
             }
         )
+
+        # Add warning if approval is required
+        if assessment.requires_approval:
+            logger.warning(
+                f"Operation requires approval - Risk Level: {assessment.risk_level.value}. "
+                f"Risks: {', '.join(assessment.specific_risks)}"
+            )
 
         # If we have real connections enabled, make the actual call
         if self.enable_real_connections and self.connection_pool:
             try:
                 result = await self._forward_to_mcp(server_name, tool_name, parameters)
-                response = {
+
+                # Sanitize response through integrated security
+                sanitized_result, response_assessment = await self.security.sanitize_response(
+                    server_name=server_name,
+                    tool_name=tool_name,
+                    parameters=parameters,
+                    response_data=result,
+                    security_context=security_context,
+                )
+
+                success_response: dict[str, Any] = {
                     "status": "success",
-                    "result": result,
+                    "result": sanitized_result,
                     "security_prompt": security_prompt,
                 }
+                if response_assessment.risk_level != RiskLevel.SAFE:
+                    success_response["response_assessment"] = response_assessment.to_dict()
+                response = success_response
 
                 # Log successful response with full result
                 interaction_logger.info(
@@ -491,16 +528,14 @@ Please review this operation carefully before proceeding.
         Returns:
             True if access is allowed, False otherwise
         """
-        # Get the dangerous commands configuration
-        config = get_dangerous_commands_config()
-
-        # Check if the server name matches any blocked server patterns
-        dangerous_match = config.check_dangerous_pattern(
+        # Check if the server name matches any dangerous patterns
+        dangerous_match = self.security.dangerous_commands.check_dangerous_pattern(
             server_name, categories=["server"]
         )
 
         if dangerous_match:
-            category, pattern_name, matched_text = dangerous_match
+            pattern, matched_text = dangerous_match
+            pattern_name = pattern.name
             logger.warning(
                 f"Access to server '{server_name}' is blocked - "
                 f"matches pattern '{pattern_name}'"
