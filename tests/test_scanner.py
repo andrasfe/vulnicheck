@@ -337,3 +337,204 @@ package5 = {git = "https://github.com/test/repo.git"}
             assert "vulnerable-package==1.0.0" in results
             assert len(results["vulnerable-package==1.0.0"]) == 1
             assert "safe-package==2.0.0" not in results
+
+    @pytest.mark.asyncio
+    async def test_scan_setup_py(self, scanner):
+        """Test scanning setup.py files."""
+        setup_content = '''
+from setuptools import setup
+
+setup(
+    name="test-package",
+    version="1.0.0",
+    install_requires=[
+        "numpy==1.19.0",
+        "flask>=2.0.0",
+        "requests~=2.28.0",
+        "django>=3.2,<4.0",
+        "pandas",
+    ],
+)
+'''
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as f:
+            f.write(setup_content)
+            f.flush()
+
+        # Create a proper setup.py file
+        setup_path = os.path.join(os.path.dirname(f.name), "setup.py")
+        os.rename(f.name, setup_path)
+
+        # Mock the _check_package method to avoid actual API calls
+        async def mock_check_package(name, version_spec):
+            if name == "numpy":
+                return [{"id": "GHSA-numpy"}]
+            elif name == "django":
+                return [{"id": "GHSA-django"}]
+            else:
+                return []
+
+        scanner._check_package = mock_check_package
+
+        try:
+            results = await scanner.scan_file(setup_path)
+
+            assert len(results) == 5
+            assert len(results["numpy==1.19.0"]) == 1
+            assert len(results["flask>=2.0.0"]) == 0
+            # The key format might be different for complex version specs
+            django_key = next((k for k in results if k.startswith("django")), None)
+            assert django_key is not None
+            assert len(results[django_key]) == 1
+            assert len(results["pandas"]) == 0
+
+        finally:
+            os.unlink(setup_path)
+
+    def test_parse_setup_py_simple(self, scanner):
+        """Test parsing a simple setup.py file."""
+        setup_content = '''
+from setuptools import setup
+
+setup(
+    name="test-package",
+    install_requires=[
+        "numpy==1.19.0",
+        "flask>=2.0.0",
+    ],
+)
+'''
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(setup_content)
+            f.flush()
+
+            try:
+                deps = scanner._parse_setup_py(Path(f.name))
+
+                assert len(deps) == 2
+                assert ("numpy", "==1.19.0") in deps
+                assert ("flask", ">=2.0.0") in deps
+
+            finally:
+                os.unlink(f.name)
+
+    def test_parse_setup_py_with_variables(self, scanner):
+        """Test parsing setup.py that uses variables for install_requires."""
+        setup_content = '''
+from setuptools import setup
+
+requirements = ["numpy==1.19.0", "flask>=2.0.0"]
+
+setup(
+    name="test-package",
+    install_requires=requirements,
+)
+'''
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(setup_content)
+            f.flush()
+
+            try:
+                deps = scanner._parse_setup_py(Path(f.name))
+
+                # Should be empty because we can't resolve variables
+                assert len(deps) == 0
+
+            finally:
+                os.unlink(f.name)
+
+    def test_parse_setup_py_fallback(self, scanner):
+        """Test fallback regex parsing for setup.py files."""
+        setup_content = '''
+from setuptools import setup
+
+setup(
+    name="test-package",
+    install_requires=[
+        "numpy==1.19.0",
+        "flask>=2.0.0",
+        'requests~=2.28.0',  # Single quotes
+    ],
+)
+'''
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(setup_content)
+            f.flush()
+
+            try:
+                deps = scanner._parse_setup_py_fallback(Path(f.name))
+
+                assert len(deps) == 3
+                assert ("numpy", "==1.19.0") in deps
+                assert ("flask", ">=2.0.0") in deps
+                assert ("requests", "~=2.28.0") in deps
+
+            finally:
+                os.unlink(f.name)
+
+    def test_parse_setup_py_malformed(self, scanner):
+        """Test parsing malformed setup.py files."""
+        setup_content = '''
+# This is not valid Python syntax
+from setuptools import setup
+
+setup(
+    name="test-package"
+    install_requires=[  # Missing comma
+        "numpy==1.19.0",
+    ]
+)
+'''
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(setup_content)
+            f.flush()
+
+            try:
+                deps = scanner._parse_setup_py(Path(f.name))
+
+                # Should fall back to regex parsing and still find numpy
+                assert len(deps) == 1
+                assert ("numpy", "==1.19.0") in deps
+
+            finally:
+                os.unlink(f.name)
+
+    @pytest.mark.asyncio
+    async def test_scan_directory_with_setup_py(self, scanner):
+        """Test directory scanning that finds setup.py."""
+        setup_content = '''
+from setuptools import setup
+
+setup(
+    name="test-package",
+    install_requires=[
+        "numpy==1.19.0",
+        "flask>=2.0.0",
+    ],
+)
+'''
+
+        # Mock the _check_package method
+        async def mock_check_package(name, version_spec):
+            if name == "numpy":
+                return [{"id": "GHSA-numpy"}]
+            else:
+                return []
+
+        scanner._check_package = mock_check_package
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            setup_path = os.path.join(tmpdir, "setup.py")
+
+            with open(setup_path, "w") as f:
+                f.write(setup_content)
+
+            results = await scanner.scan_directory(tmpdir)
+
+            assert len(results) == 2
+            assert len(results["numpy==1.19.0"]) == 1
+            assert len(results["flask>=2.0.0"]) == 0

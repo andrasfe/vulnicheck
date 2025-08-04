@@ -111,7 +111,7 @@ docker-compose down
 1. **MCP Server** (`vulnicheck/server.py`): FastMCP-based server exposing vulnerability checking tools via Model Context Protocol
    - Tools:
      - `check_package_vulnerabilities`: Check vulnerabilities for a specific Python package
-     - `scan_dependencies`: Scan a dependency file (requirements.txt, pyproject.toml, etc.)
+     - `scan_dependencies`: Scan a dependency file (requirements.txt, pyproject.toml, setup.py, etc.)
      - `scan_installed_packages`: Scan currently installed Python packages
      - `get_cve_details`: Get detailed information about a specific CVE
      - `scan_for_secrets`: Scan files/directories for exposed secrets and credentials
@@ -126,6 +126,7 @@ docker-compose down
      - `get_mcp_conversations`: Retrieve and search past MCP interactions
      - `scan_github_repo`: Comprehensive security analysis of GitHub repositories
      - `install_vulnicheck_guide`: Installation guide for Claude Code users
+     - `manage_trust_store`: Manage MCP server trust store for configuration security
    - Runs on port 3000 by default (configurable via MCP_PORT env var)
 
 2. **Vulnerability Clients**:
@@ -142,7 +143,7 @@ docker-compose down
    - See module docstring for detailed explanation of why SDK wasn't suitable
 
 4. **Scanner** (`scanner.py`):
-   - Parses dependency files (requirements.txt, pyproject.toml, lock files)
+   - Parses dependency files (requirements.txt, pyproject.toml, setup.py, lock files)
    - Falls back to Python import scanning when no dependency file exists
    - Coordinates vulnerability checking across all clients
 
@@ -220,6 +221,13 @@ docker-compose down
      - Risk levels: BLOCKED, HIGH_RISK, REQUIRES_APPROVAL, LOW_RISK, SAFE
    - All passthrough variants now use this unified security layer for consistent protection
 
+16. **Trust Store Management** (`vulnicheck/tools/manage_trust_store.py`):
+   - Manages trusted MCP server configurations to prevent unauthorized changes
+   - Supports list, add, remove, and verify operations
+   - Trust-on-first-use model for new server configurations
+   - Prevents configuration tampering and unauthorized server modifications
+   - Integrates with unified security layer for comprehensive protection
+
 ### Key Implementation Details
 
 - All clients are initialized lazily to avoid connection issues at startup
@@ -285,7 +293,7 @@ See the docstring in `mcp_client.py` for more details.
 - All tests run with `uv run` to ensure proper virtual environment usage
 - Makefile includes targets for different test categories (unit, integration, MCP, security, clients)
 - Type checking configured with mypy (strict for production code, relaxed for tests)
-- **Test Status**: 345 unit tests passing, 2 skipped (integration tests requiring API credentials)
+- **Test Status**: 416 unit tests passing, 2 skipped (integration tests requiring API credentials)
 
 ## Important Notes
 
@@ -319,7 +327,7 @@ See the docstring in `mcp_client.py` for more details.
 - Added comprehensive MCP interaction logging with full payload capture
 - Implemented hourly log rotation for MCP logs
 - Fixed test order dependencies that were causing intermittent failures
-- All tests now pass (313 unit tests, 2 skipped) with clean linting and type checking
+- All tests now pass (416 unit tests, 2 skipped) with clean linting and type checking
 - Added pre-commit hooks that run `make lint` and `make test-unit` before commits
 - Added `scan_dockerfile` tool to analyze Dockerfiles for Python dependency vulnerabilities
 - **Implemented LLM-based risk assessment for MCP passthrough**:
@@ -359,8 +367,20 @@ See the docstring in `mcp_client.py` for more details.
   - Supports filtering by client, server, and search queries
   - Active conversations persist for 1 hour to maintain continuity
   - Includes conversation cleanup functionality for old conversations (30+ days)
+- **Setup.py Support (August 2025)**:
+  - Added full support for setup.py dependency file scanning
+  - AST-based parsing extracts install_requires dependencies
+  - Fallback regex parsing for malformed setup.py files
+  - Directory scanning now includes setup.py file detection
+  - Comprehensive test coverage for setup.py parsing functionality
+- **Context Protector Integration (August 2025)**:
+  - Integrated Trail of Bits Context Protector-inspired security layer
+  - Added trust store management with `manage_trust_store` tool
+  - Enhanced MCP passthrough with unified security validation
+  - Response sanitization removes ANSI codes and detects prompt injection
+  - Trust-on-first-use model prevents unauthorized server configuration changes
 - **Recent Bug Fixes (January 2025)**:
-  - Fixed comprehensive_security_check parameter validation for npx compatibility
+  - Fixed comprehensive_security_check parameter validation for npx compatibility  
   - Fixed session_id validation in comprehensive security check
   - Fixed risk level display showing HIGH incorrectly when 0 findings exist
   - Fixed comprehensive security check for MCP server context

@@ -46,6 +46,8 @@ class DependencyScanner:
             dependencies = self._parse_pyproject(path)
         elif path.name.endswith(".lock") or path.name == "uv.lock":
             dependencies = self._parse_lock_file(path)
+        elif path.name == "setup.py":
+            dependencies = self._parse_setup_py(path)
         else:
             raise ValueError(f"Unsupported file: {path.name}")
 
@@ -159,6 +161,86 @@ class DependencyScanner:
                         name = parts[0].strip()
                         version = parts[1].strip().split()[0]  # Remove comments
                         deps.append((name, f"=={version}"))
+
+        return deps
+
+    def _parse_setup_py(self, path: Path) -> list[tuple[str, str]]:
+        """Parse setup.py file to extract dependencies from install_requires."""
+        deps = []
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+
+            # Parse the setup.py file as an AST
+            tree = ast.parse(content, filename=str(path))
+
+            # Find setup() calls
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Call) and
+                    isinstance(node.func, ast.Name) and
+                    node.func.id == "setup"):
+
+                    # Look for install_requires argument
+                    for keyword in node.keywords:
+                        if keyword.arg == "install_requires":
+                            deps.extend(self._extract_install_requires(keyword.value))
+
+        except (SyntaxError, UnicodeDecodeError, Exception) as e:
+            logger.debug(f"Failed to parse setup.py file {path}: {e}")
+            # Fallback: try regex parsing
+            deps.extend(self._parse_setup_py_fallback(path))
+
+        return deps
+
+    def _extract_install_requires(self, node: ast.AST) -> list[tuple[str, str]]:
+        """Extract dependencies from install_requires AST node."""
+        deps = []
+
+        if isinstance(node, ast.List):
+            # install_requires = ["package1", "package2>=1.0"]
+            for item in node.elts:
+                if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                    deps.append(self._parse_requirement(item.value))
+                elif isinstance(item, ast.Str):  # Python < 3.8 compatibility
+                    deps.append(self._parse_requirement(item.s))
+        elif isinstance(node, ast.Name):
+            # install_requires = requirements (variable reference)
+            # We can't resolve variables, so skip
+            logger.debug("setup.py uses variable for install_requires, skipping")
+        elif isinstance(node, ast.Call):
+            # install_requires = read_requirements() or similar
+            logger.debug("setup.py uses function call for install_requires, skipping")
+
+        return deps
+
+    def _parse_setup_py_fallback(self, path: Path) -> list[tuple[str, str]]:
+        """Fallback regex-based parsing for setup.py files."""
+        deps = []
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+
+            # Look for install_requires with simple regex
+            # This handles basic cases: install_requires=["package1", "package2>=1.0"]
+            import re
+
+            # Pattern to match install_requires list
+            pattern = r'install_requires\s*=\s*\[(.*?)\]'
+            matches = re.search(pattern, content, re.DOTALL)
+
+            if matches:
+                requirements_str = matches.group(1)
+                # Extract quoted strings
+                req_pattern = r'["\']([^"\']+)["\']'
+                for match in re.finditer(req_pattern, requirements_str):
+                    requirement = match.group(1).strip()
+                    if requirement:
+                        deps.append(self._parse_requirement(requirement))
+
+        except Exception as e:
+            logger.debug(f"Fallback parsing failed for {path}: {e}")
 
         return deps
 
@@ -333,14 +415,17 @@ class DependencyScanner:
         """Scan a directory for Python imports when no requirements file exists."""
         path = Path(directory_path).resolve()
 
-        # First check if requirements.txt or pyproject.toml exists
+        # First check if requirements.txt, pyproject.toml, or setup.py exists
         req_file = path / "requirements.txt"
         pyproject_file = path / "pyproject.toml"
+        setup_file = path / "setup.py"
 
         if req_file.exists():
             return await self.scan_file(str(req_file))
         elif pyproject_file.exists():
             return await self.scan_file(str(pyproject_file))
+        elif setup_file.exists():
+            return await self.scan_file(str(setup_file))
 
         # No dependency files found, scan Python files for imports
         imports = self._scan_python_imports(path)
