@@ -26,7 +26,7 @@ Once installed, simply ask Claude Code:
 ```
 
 VulniCheck will:
-- ✅ Scan dependencies for known vulnerabilities
+- ✅ Scan dependencies for known vulnerabilities (requirements.txt, pyproject.toml, setup.py)
 - ✅ Detect exposed secrets and credentials
 - ✅ Analyze Dockerfiles for security issues
 - ✅ Validate MCP configurations
@@ -48,9 +48,12 @@ VulniCheck will:
 - Python 3.10+
 - Claude Code or compatible MCP client
 
-## Known Limitations & TODO
+## Supported File Types
 
-- **setup.py files**: Currently not supported for dependency scanning. The scanner only supports `requirements.txt`, `pyproject.toml`, and lock files. Projects using `setup.py` for dependency management will need to generate a `requirements.txt` file or migrate to `pyproject.toml`.
+- **Dependencies**: `requirements.txt`, `pyproject.toml`, `setup.py`, lock files (`uv.lock`, `requirements.lock`, etc.)
+- **Containers**: `Dockerfile`, `docker-compose.yml`
+- **Secrets**: All text-based files (excludes binary files, git history)
+- **GitHub**: Any public or private repository URL
 
 ## Support
 
