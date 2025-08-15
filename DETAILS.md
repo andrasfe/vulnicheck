@@ -1,6 +1,6 @@
 # VulniCheck MCP Server
 
-A Python-based MCP (Model Context Protocol) server that provides real-time security advice about Python modules by querying multiple authoritative vulnerability databases including OSV.dev, NVD (National Vulnerability Database), GitHub Advisory Database, CIRCL Vulnerability-Lookup, and Safety DB.
+A Python-based MCP (Model Context Protocol) HTTP server that provides real-time security advice about Python modules by querying multiple authoritative vulnerability databases including OSV.dev, NVD (National Vulnerability Database), GitHub Advisory Database, CIRCL Vulnerability-Lookup, and Safety DB. Features HTTP-only architecture with flexible FileProvider system supporting both local file access and client-delegated file operations.
 
 ## DISCLAIMER
 
@@ -198,6 +198,86 @@ Or traditional setup:
   }
 }
 ```
+
+## Architecture and Deployment
+
+### HTTP-Only Architecture
+
+VulniCheck operates exclusively as an HTTP MCP server, providing modern deployment capabilities and flexible file operation support:
+
+**Key Features:**
+- **HTTP Transport Only**: No stdio support for simplified deployment and monitoring
+- **FileProvider Architecture**: Abstraction layer supporting both local and client-delegated file operations
+- **Hybrid Deployment**: Efficient local operations for GitHub repositories, client delegation for user files
+- **Production Ready**: HTTP server suitable for load balancing, monitoring, and scaling
+
+### FileProvider System
+
+The FileProvider architecture enables flexible deployment scenarios:
+
+#### Local Mode (Development)
+```bash
+export VULNICHECK_HTTP_ONLY=false  # Optional, auto-detected
+vulnicheck  # Starts on port 3000
+```
+- Direct filesystem access using `LocalFileProvider`
+- Suitable for development and local deployments
+- No MCP client file tools required
+
+#### HTTP-Only Mode (Production)
+```bash
+export VULNICHECK_HTTP_ONLY=true
+export VULNICHECK_MCP_SERVER=files
+vulnicheck
+```
+- Client-delegated file operations using `MCPClientFileProvider`
+- Requires MCP client to implement file callback tools
+- Enhanced security through client-controlled file access
+
+### MCP Client Requirements for HTTP-Only Mode
+
+When running in HTTP-only mode, your MCP client must implement these callback tools:
+
+#### Required Tools
+- **`read_file`**: Read text file contents with encoding support
+- **`read_file_binary`**: Read binary files as base64-encoded data
+- **`list_directory`**: List directory contents with pattern filtering
+- **`file_exists`**: Check if file or directory exists
+- **`get_file_stats`**: Get file metadata (size, type, modified time, permissions)
+
+#### Optional Tools (Performance Optimizations)
+- **`calculate_file_hash`**: Calculate file hashes client-side
+- **`find_files`**: Find files matching patterns efficiently
+
+#### Implementation Guide
+1. **Reference Implementation**: See `examples/mcp_client_file_provider_reference.py`
+2. **Claude Code Integration**: See `examples/claude_code_integration_example.py`
+3. **Complete Specification**: See `docs/mcp_client_callback_tools_specification.md`
+4. **Architecture Details**: See `docs/file_provider_architecture.md`
+
+### Deployment Scenarios
+
+#### 1. Development (Local Files)
+- VulniCheck accesses files directly
+- No client file tools needed
+- Traditional deployment pattern
+
+#### 2. HTTP-Only Production
+- VulniCheck delegates user file operations to client
+- Enhanced security through client-controlled access
+- GitHub repositories still cloned server-side for efficiency
+
+#### 3. Zero-Trust Environment
+- All file operations delegated to client
+- Server has no filesystem access
+- Maximum security isolation
+
+### Environment Variables
+
+- **`VULNICHECK_HTTP_ONLY`**: Enable HTTP-only mode ("true"/"false", auto-detected if unset)
+- **`VULNICHECK_MCP_SERVER`**: MCP server name for file operations (default: "files")
+- **`MCP_PORT`**: HTTP server port (default: 3000)
+- Standard API keys: `NVD_API_KEY`, `GITHUB_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
 
 ## Alternative Installation Options
 
