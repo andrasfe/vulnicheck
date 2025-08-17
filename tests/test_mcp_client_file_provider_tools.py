@@ -147,7 +147,7 @@ class TestPathValidation:
             result = validate_path(path)
             # After resolution, most of these should be valid Path objects
             # but some might trigger security checks
-            assert isinstance(result, (Path, dict))
+            assert isinstance(result, Path | dict)
 
     def test_validate_path_too_deep(self, tmp_path):
         """Test path depth limits."""
@@ -641,7 +641,7 @@ class TestErrorHandling:
         """Test concurrent file operations."""
         # Run multiple operations concurrently
         tasks = []
-        for i in range(10):
+        for _i in range(10):
             tasks.append(file_exists(str(test_files['text_file'])))
             tasks.append(get_file_stats(str(test_files['text_file'])))
 

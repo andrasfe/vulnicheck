@@ -27,18 +27,18 @@ logger = logging.getLogger(__name__)
 class MCPClientFileProvider(FileProvider):
     """
     MCP client-delegated implementation of FileProvider.
-    
+
     This implementation delegates file operations to an MCP client,
     enabling HTTP-only deployment where the client performs file operations
     on behalf of the server.
-    
+
     Required MCP tools on client:
     - read_file: Read file contents
-    - read_file_binary: Read binary file contents  
+    - read_file_binary: Read binary file contents
     - list_directory: List directory contents
     - file_exists: Check if file exists
     - get_file_stats: Get file statistics
-    
+
     Security considerations:
     - Client-side file access requires trust in the client
     - File size limits are still enforced server-side
@@ -53,7 +53,7 @@ class MCPClientFileProvider(FileProvider):
     ):
         """
         Initialize MCP client file provider.
-        
+
         Args:
             server_name: Name of the MCP server to connect to
             client: Optional existing MCPClient instance
@@ -81,14 +81,14 @@ class MCPClientFileProvider(FileProvider):
     ) -> Any:
         """
         Call an MCP tool with error handling.
-        
+
         Args:
             tool_name: Name of the tool to call
             parameters: Parameters for the tool
-            
+
         Returns:
             Tool result
-            
+
         Raises:
             FileProviderError: For various file operation errors
         """
@@ -119,12 +119,12 @@ class MCPClientFileProvider(FileProvider):
             return result
 
         except ConnectionError as e:
-            raise FileProviderError(f"MCP connection error: {e}")
+            raise FileProviderError(f"MCP connection error: {e}") from e
         except TimeoutError as e:
-            raise FileProviderError(f"MCP operation timed out: {e}")
+            raise FileProviderError(f"MCP operation timed out: {e}") from e
         except Exception as e:
             logger.error(f"Unexpected error calling MCP tool {tool_name}: {e}")
-            raise FileProviderError(f"MCP tool call failed: {e}")
+            raise FileProviderError(f"MCP tool call failed: {e}") from e
 
     async def read_file(
         self,
@@ -178,7 +178,7 @@ class MCPClientFileProvider(FileProvider):
             try:
                 binary_data = base64.b64decode(result)
             except Exception as e:
-                raise FileProviderError(f"Failed to decode binary data: {e}")
+                raise FileProviderError(f"Failed to decode binary data: {e}") from e
         elif isinstance(result, bytes):
             binary_data = result
         else:
@@ -265,7 +265,7 @@ class MCPClientFileProvider(FileProvider):
                 is_directory=result.get("is_directory", False),
             )
         except (KeyError, ValueError, TypeError) as e:
-            raise FileProviderError(f"Invalid file stats format: {e}")
+            raise FileProviderError(f"Invalid file stats format: {e}") from e
 
     async def calculate_file_hash(
         self,
@@ -275,7 +275,7 @@ class MCPClientFileProvider(FileProvider):
     ) -> str:
         """
         Calculate file hash via MCP client.
-        
+
         Note: chunk_size is ignored for MCP clients as the calculation
         is performed client-side.
         """
@@ -296,7 +296,7 @@ class MCPClientFileProvider(FileProvider):
         try:
             int(result, 16)
         except ValueError:
-            raise FileProviderError("Invalid hash format received from client")
+            raise FileProviderError("Invalid hash format received from client") from None
 
         return result
 
@@ -309,7 +309,7 @@ class MCPClientFileProvider(FileProvider):
     ) -> list[str]:
         """
         Find files matching patterns via MCP client.
-        
+
         This method can be optimized by implementing a dedicated
         find_files tool on the client side.
         """

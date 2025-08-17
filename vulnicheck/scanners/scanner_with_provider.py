@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class DependencyScannerWithProvider:
     """
     Dependency scanner with FileProvider interface support.
-    
+
     This version of DependencyScanner uses the FileProvider interface
     for all file operations, enabling both local and MCP client-delegated
     file access depending on deployment context.
@@ -40,7 +40,7 @@ class DependencyScannerWithProvider:
     ) -> None:
         """
         Initialize dependency scanner with file provider.
-        
+
         Args:
             file_provider: FileProvider instance for file operations
             osv_client: OSV vulnerability client
@@ -111,9 +111,9 @@ class DependencyScannerWithProvider:
         try:
             content = await self.file_provider.read_file(file_path)
         except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e))
+            raise FileNotFoundError(str(e)) from e
         except FileProviderError as e:
-            raise ValueError(f"Failed to read requirements file: {e}")
+            raise ValueError(f"Failed to read requirements file: {e}") from e
 
         for line in content.splitlines():
             line = line.strip()
@@ -134,9 +134,9 @@ class DependencyScannerWithProvider:
             content = await self.file_provider.read_file(file_path)
             data = toml.loads(content)
         except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e))
+            raise FileNotFoundError(str(e)) from e
         except FileProviderError as e:
-            raise ValueError(f"Failed to read pyproject.toml: {e}")
+            raise ValueError(f"Failed to read pyproject.toml: {e}") from e
         except Exception as e:
             raise ValueError(f"Failed to parse pyproject.toml: {e}") from e
 
@@ -179,9 +179,9 @@ class DependencyScannerWithProvider:
         try:
             content = await self.file_provider.read_file(file_path)
         except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e))
+            raise FileNotFoundError(str(e)) from e
         except FileProviderError as e:
-            raise ValueError(f"Failed to read lock file: {e}")
+            raise ValueError(f"Failed to read lock file: {e}") from e
 
         file_name = file_path.split('/')[-1]  # Simple basename extraction
 
@@ -221,9 +221,9 @@ class DependencyScannerWithProvider:
         try:
             content = await self.file_provider.read_file(file_path, encoding="utf-8")
         except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e))
+            raise FileNotFoundError(str(e)) from e
         except FileProviderError as e:
-            raise ValueError(f"Failed to read setup.py: {e}")
+            raise ValueError(f"Failed to read setup.py: {e}") from e
 
         try:
             # Parse the setup.py file as an AST
@@ -609,7 +609,7 @@ class DependencyScannerWithProvider:
     async def scan_installed(self) -> dict[str, list[Any]]:
         """
         Scan installed Python packages for vulnerabilities.
-        
+
         Note: This method cannot be delegated to MCP clients as it requires
         access to the local Python environment. It will only work with
         LocalFileProvider deployments.

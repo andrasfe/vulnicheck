@@ -20,6 +20,11 @@ RUN pip install --no-cache-dir -e .
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash vulnicheck
+
+# Create .vulnicheck directory with proper permissions
+RUN mkdir -p /home/vulnicheck/.vulnicheck && \
+    chown -R vulnicheck:vulnicheck /home/vulnicheck/.vulnicheck
+
 USER vulnicheck
 
 # Expose the HTTP port

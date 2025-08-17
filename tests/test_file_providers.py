@@ -468,7 +468,7 @@ class TestMCPClientFileProvider(TestFileProviderBase):
         ]
 
         # Find files (should use fallback)
-        files = await provider.find_files("/test", ["*.py"])
+        _files = await provider.find_files("/test", ["*.py"])
 
         # Should have called multiple tools for fallback
         assert mock_client.call_tool.call_count >= 2

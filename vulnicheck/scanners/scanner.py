@@ -45,9 +45,9 @@ class DependencyScanner:
             if file_stats.size > 10 * 1024 * 1024:  # 10MB limit
                 raise ValueError(f"File too large (max 10MB): {file_path}")
         except ProviderFileNotFoundError:
-            raise FileNotFoundError(f"File not found: {file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}") from None
         except FileProviderError as e:
-            raise ValueError(f"Cannot access file {file_path}: {e}")
+            raise ValueError(f"Cannot access file {file_path}: {e}") from e
 
         # Parse dependencies based on file type
         file_name = Path(file_path).name  # Extract just the filename
@@ -89,9 +89,9 @@ class DependencyScanner:
         try:
             content = await self.file_provider.read_file(file_path)
         except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e))
+            raise FileNotFoundError(str(e)) from e
         except FileProviderError as e:
-            raise ValueError(f"Failed to read requirements file: {e}")
+            raise ValueError(f"Failed to read requirements file: {e}") from e
 
         for line in content.splitlines():
             line = line.strip()
@@ -112,9 +112,9 @@ class DependencyScanner:
             content = await self.file_provider.read_file(file_path)
             data = toml.loads(content)
         except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e))
+            raise FileNotFoundError(str(e)) from e
         except FileProviderError as e:
-            raise ValueError(f"Failed to read pyproject.toml: {e}")
+            raise ValueError(f"Failed to read pyproject.toml: {e}") from e
         except Exception as e:
             raise ValueError(f"Failed to parse pyproject.toml: {e}") from e
 
@@ -157,9 +157,9 @@ class DependencyScanner:
         try:
             content = await self.file_provider.read_file(file_path)
         except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e))
+            raise FileNotFoundError(str(e)) from e
         except FileProviderError as e:
-            raise ValueError(f"Failed to read lock file: {e}")
+            raise ValueError(f"Failed to read lock file: {e}") from e
 
         file_name = Path(file_path).name  # Extract just the filename
 
@@ -214,9 +214,9 @@ class DependencyScanner:
                             deps.extend(self._extract_install_requires(keyword.value))
 
         except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e))
+            raise FileNotFoundError(str(e)) from e
         except FileProviderError as e:
-            raise ValueError(f"Failed to read setup.py: {e}")
+            raise ValueError(f"Failed to read setup.py: {e}") from e
         except (SyntaxError, UnicodeDecodeError, Exception) as e:
             logger.debug(f"Failed to parse setup.py file {file_path}: {e}")
             # Fallback: try regex parsing

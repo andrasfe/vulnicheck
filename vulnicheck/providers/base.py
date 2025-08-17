@@ -83,10 +83,10 @@ class UnsupportedOperationError(FileProviderError):
 class FileProvider(ABC):
     """
     Abstract interface for file system operations.
-    
+
     This interface abstracts file operations to enable both local server-side
     file access and remote client-delegated file operations via MCP.
-    
+
     Design principles:
     - All paths are treated as strings to maintain compatibility
     - Security limits are enforced at the interface level
@@ -108,15 +108,15 @@ class FileProvider(ABC):
     ) -> str:
         """
         Read the contents of a text file.
-        
+
         Args:
             file_path: Path to the file to read
             encoding: Text encoding to use (default: utf-8)
             max_size: Maximum file size in bytes (default: MAX_FILE_SIZE)
-            
+
         Returns:
             File contents as string
-            
+
         Raises:
             FileNotFoundError: If file doesn't exist
             PermissionError: If file can't be read
@@ -132,14 +132,14 @@ class FileProvider(ABC):
     ) -> bytes:
         """
         Read the contents of a binary file.
-        
+
         Args:
             file_path: Path to the file to read
             max_size: Maximum file size in bytes (default: MAX_FILE_SIZE)
-            
+
         Returns:
             File contents as bytes
-            
+
         Raises:
             FileNotFoundError: If file doesn't exist
             PermissionError: If file can't be read
@@ -157,16 +157,16 @@ class FileProvider(ABC):
     ) -> list[str]:
         """
         List files and directories in a directory.
-        
+
         Args:
             directory_path: Path to the directory
             pattern: Glob pattern to filter files (optional)
             recursive: Whether to list recursively
             max_files: Maximum number of files to return (default: MAX_DIRECTORY_FILES)
-            
+
         Returns:
             List of file/directory paths
-            
+
         Raises:
             FileNotFoundError: If directory doesn't exist
             PermissionError: If directory can't be accessed
@@ -177,10 +177,10 @@ class FileProvider(ABC):
     async def file_exists(self, path: str) -> bool:
         """
         Check if a file or directory exists.
-        
+
         Args:
             path: Path to check
-            
+
         Returns:
             True if the path exists, False otherwise
         """
@@ -190,13 +190,13 @@ class FileProvider(ABC):
     async def get_file_stats(self, path: str) -> FileStats:
         """
         Get file statistics and metadata.
-        
+
         Args:
             path: Path to the file or directory
-            
+
         Returns:
             FileStats object with metadata
-            
+
         Raises:
             FileNotFoundError: If path doesn't exist
             PermissionError: If path can't be accessed
@@ -206,10 +206,10 @@ class FileProvider(ABC):
     async def is_directory(self, path: str) -> bool:
         """
         Check if a path is a directory.
-        
+
         Args:
             path: Path to check
-            
+
         Returns:
             True if path is a directory, False otherwise
         """
@@ -222,10 +222,10 @@ class FileProvider(ABC):
     async def is_file(self, path: str) -> bool:
         """
         Check if a path is a regular file.
-        
+
         Args:
             path: Path to check
-            
+
         Returns:
             True if path is a file, False otherwise
         """
@@ -238,13 +238,13 @@ class FileProvider(ABC):
     async def get_file_size(self, file_path: str) -> int:
         """
         Get the size of a file in bytes.
-        
+
         Args:
             file_path: Path to the file
-            
+
         Returns:
             File size in bytes
-            
+
         Raises:
             FileNotFoundError: If file doesn't exist
         """
@@ -259,12 +259,12 @@ class FileProvider(ABC):
     ) -> str:
         """
         Calculate hash of a file.
-        
+
         Args:
             file_path: Path to the file
             algorithm: Hash algorithm (md5, sha1, sha256)
             chunk_size: Size of chunks to read
-            
+
         Returns:
             Hex digest of the file hash
         """
@@ -287,13 +287,13 @@ class FileProvider(ABC):
     ) -> list[str]:
         """
         Find files matching patterns in a directory.
-        
+
         Args:
             directory_path: Directory to search
             patterns: List of glob patterns to match
             recursive: Whether to search recursively
             max_files: Maximum number of files to return
-            
+
         Returns:
             List of matching file paths
         """
@@ -319,13 +319,13 @@ class FileProvider(ABC):
     def _validate_path(self, path: str) -> str:
         """
         Validate and normalize a file path.
-        
+
         Args:
             path: Path to validate
-            
+
         Returns:
             Normalized path
-            
+
         Raises:
             FileProviderError: If path is invalid or unsafe
         """
@@ -352,11 +352,11 @@ class FileProvider(ABC):
     def _check_file_size(self, size: int, max_size: int | None = None) -> None:
         """
         Check if file size is within limits.
-        
+
         Args:
             size: File size in bytes
             max_size: Maximum allowed size (default: MAX_FILE_SIZE)
-            
+
         Raises:
             FileSizeLimitExceededError: If file is too large
         """

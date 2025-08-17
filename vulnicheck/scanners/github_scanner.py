@@ -72,12 +72,12 @@ class GitHubRepoInfo:
 class GitHubRepoScanner:
     """
     Scanner for GitHub repositories using hybrid FileProvider approach.
-    
+
     This scanner uses LocalFileProvider for efficient server-side operations
     when cloning and scanning repositories. The FileProvider-compatible scanners
     (DependencyScanner, SecretsScanner, DockerScanner) are used with scoped
     LocalFileProvider instances for optimal performance on cloned repositories.
-    
+
     Architecture:
     - Repository cloning: Direct git operations (server-side only)
     - File scanning: FileProvider interface with LocalFileProvider

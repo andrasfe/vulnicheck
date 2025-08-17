@@ -73,41 +73,59 @@ To install VulniCheck, YOU need to run the following command in YOUR terminal (n
 ⚠️ WARNING: The command may appear broken across multiple lines. Make sure it's all on ONE LINE before running.
 ```
 
-Then TELL THEM (do not run) the appropriate command:
+Then provide the Docker deployment instructions:
+
+**Step 1: Clone and build the Docker image**
+
+Tell them to run:
+```bash
+git clone -b docker-deployment https://github.com/andrasfe/vulnicheck.git
+cd vulnicheck
+docker build -t vulnicheck .
+```
+
+**Step 2: Run the Docker container**
 
 **If user provided OPENAI_API_KEY only:**
 ```bash
-claude mcp add vulnicheck -e OPENAI_API_KEY=<INSERT_USER_PROVIDED_KEY_HERE> -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+docker run -d --name vulnicheck -p 3000:3000 -e OPENAI_API_KEY=<INSERT_USER_PROVIDED_KEY_HERE> vulnicheck
 ```
 
 **If user provided ANTHROPIC_API_KEY only:**
 ```bash
-claude mcp add vulnicheck -e ANTHROPIC_API_KEY=<INSERT_USER_PROVIDED_KEY_HERE> -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+docker run -d --name vulnicheck -p 3000:3000 -e ANTHROPIC_API_KEY=<INSERT_USER_PROVIDED_KEY_HERE> vulnicheck
 ```
 
 **If user provided BOTH keys:**
 ```bash
-claude mcp add vulnicheck -e OPENAI_API_KEY=<INSERT_OPENAI_KEY_HERE> -e ANTHROPIC_API_KEY=<INSERT_ANTHROPIC_KEY_HERE> -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+docker run -d --name vulnicheck -p 3000:3000 -e OPENAI_API_KEY=<INSERT_OPENAI_KEY_HERE> -e ANTHROPIC_API_KEY=<INSERT_ANTHROPIC_KEY_HERE> vulnicheck
 ```
 
 **If user skipped or provided no keys:**
 ```bash
-claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+docker run -d --name vulnicheck -p 3000:3000 vulnicheck
 ```
 
-**For HTTP-only deployment (client delegates file operations):**
-```bash
-claude mcp add vulnicheck -e VULNICHECK_HTTP_ONLY=true -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+**Step 3: Configure Claude Code**
+
+Tell them to add this configuration to their Claude Code MCP settings:
+```json
+{
+  "mcpServers": {
+    "vulnicheck": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"],
+      "env": {
+        "MCP_HTTP_URL": "http://localhost:3000/mcp"
+      }
+    }
+  }
+}
 ```
 
-**For HTTP-only with API keys:**
-```bash
-claude mcp add vulnicheck -e VULNICHECK_HTTP_ONLY=true -e OPENAI_API_KEY=<INSERT_USER_PROVIDED_KEY_HERE> -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
-```
+### Step 4: Request Claude Code Restart
 
-### Step 3: Request Claude Code Restart
-
-After the USER has run the installation command, tell them:
+After the USER has completed the Docker setup and MCP configuration, tell them:
 ```
 Installation complete!
 
@@ -116,6 +134,9 @@ Installation complete!
 2. Reopen Claude Code
 
 The VulniCheck MCP server will be available after you restart Claude Code.
+
+You can verify the Docker container is running with:
+docker ps | grep vulnicheck
 ```
 
 ## HTTP-Only Deployment Mode
@@ -143,17 +164,19 @@ VulniCheck now supports HTTP-only deployment where the server cannot access loca
 5. `get_file_stats` - Get file metadata and statistics
 
 ### Current Status:
-- **Standard Mode**: Fully supported (server accesses files directly)
+- **Docker Mode**: Fully supported via the docker-deployment branch (RECOMMENDED)
 - **HTTP-Only Mode**: Requires MCP client file operation tools (not yet implemented in Claude Code)
 
-**Recommendation**: Use standard mode unless you specifically need HTTP-only deployment.
+**Recommendation**: 
+- Use **Docker mode** for all installations (containerized, secure, and reliable)
+- Use **HTTP-only mode** only if you specifically need client-delegated file operations
 
 ## Notes for Agents
 
 - Replace `<INSERT_USER_PROVIDED_KEY_HERE>` with the actual API key values the user provides
-- **IMPORTANT**: Always warn users about potential line breaks in the command
-- API keys should NOT have quotes around them when using -e flag
-- The entire command must be on ONE LINE for it to work properly
-- If the user reports that the command failed, first check if line breaks were the issue
+- **IMPORTANT**: Docker commands should be run in sequence (clone → build → run → configure)
+- API keys should NOT have quotes around them when using -e flag in Docker
 - The MCP server will not be available until Claude Code is restarted by the USER
+- **Docker is the ONLY supported installation method** - do not offer uvx alternatives
+- If Docker is not available, instruct user to install Docker first
 - **HTTP-Only Mode**: Only use if you understand the MCP client requirements above

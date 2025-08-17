@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class FileProviderManager:
     """
     Manager for FileProvider instances.
-    
+
     Provides factory methods and caching for FileProvider instances,
     enabling easy switching between local and MCP client providers
     based on deployment context.
@@ -33,10 +33,10 @@ class FileProviderManager:
     def get_local_provider(self, base_path: str | None = None) -> LocalFileProvider:
         """
         Get a local file provider instance.
-        
+
         Args:
             base_path: Optional base path to restrict operations to
-            
+
         Returns:
             LocalFileProvider instance
         """
@@ -54,12 +54,12 @@ class FileProviderManager:
     ) -> MCPClientFileProvider:
         """
         Get an MCP client file provider instance.
-        
+
         Args:
             server_name: Name of the MCP server
             client: Optional existing MCPClient instance
             timeout: Timeout for MCP operations
-            
+
         Returns:
             MCPClientFileProvider instance
         """
@@ -85,17 +85,17 @@ class FileProviderManager:
     ) -> FileProvider:
         """
         Get the appropriate file provider based on context.
-        
+
         Args:
             prefer_local: Whether to prefer local provider over MCP
             server_name: MCP server name (required for MCP provider)
             base_path: Base path for local provider
             client: Optional MCPClient instance
             timeout: Timeout for MCP operations
-            
+
         Returns:
             Appropriate FileProvider instance
-            
+
         Raises:
             ValueError: If MCP provider requested but server_name not provided
         """
@@ -129,10 +129,10 @@ def get_provider_manager() -> FileProviderManager:
 def create_local_provider(base_path: str | None = None) -> LocalFileProvider:
     """
     Create a local file provider.
-    
+
     Args:
         base_path: Optional base path to restrict operations to
-        
+
     Returns:
         LocalFileProvider instance
     """
@@ -146,12 +146,12 @@ def create_mcp_provider(
 ) -> MCPClientFileProvider:
     """
     Create an MCP client file provider.
-    
+
     Args:
         server_name: Name of the MCP server
         client: Optional existing MCPClient instance
         timeout: Timeout for MCP operations
-        
+
     Returns:
         MCPClientFileProvider instance
     """
@@ -169,12 +169,12 @@ def get_default_provider(
 ) -> FileProvider:
     """
     Get the default file provider based on deployment mode.
-    
+
     Args:
         deployment_mode: Deployment mode ("local", "http", or None for auto-detect)
         server_name: MCP server name for HTTP mode
         base_path: Base path for local mode
-        
+
     Returns:
         Appropriate FileProvider instance
     """
@@ -201,10 +201,10 @@ def get_default_provider(
 def configure_provider_for_scanner(scanner_type: str = "dependency") -> FileProvider:
     """
     Configure appropriate file provider for different scanner types.
-    
+
     Args:
         scanner_type: Type of scanner ("dependency", "secrets", "docker", "github")
-        
+
     Returns:
         Configured FileProvider instance
     """

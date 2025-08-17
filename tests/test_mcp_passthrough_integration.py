@@ -209,7 +209,7 @@ network.new_danger = NEW_DANGEROUS_PATTERN
             ),
         ]
 
-        for server, tool, params, expected_category, expected_pattern in test_cases:
+        for server, tool, params, _expected_category, _expected_pattern in test_cases:
             result = await passthrough.execute_with_security(
                 server_name=server, tool_name=tool, parameters=params
             )
@@ -360,7 +360,7 @@ class TestMCPPassthroughFunctionIntegration:
             ({"cmd": "docker system prune -a -f"}, "container"),
         ]
 
-        for params, expected_category in category_tests:
+        for params, _expected_category in category_tests:
             result_json = await mcp_passthrough_tool(
                 server_name="multi-tool",
                 tool_name="run",  # Changed from "execute" to avoid matching exec pattern

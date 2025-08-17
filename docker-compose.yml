@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  vulnicheck:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - vulnicheck_data:/home/vulnicheck/.vulnicheck
+    environment:
+      - VULNICHECK_HTTP_ONLY=true
+      - MCP_PORT=3000
+    container_name: vulnicheck-container
+
+volumes:
+  vulnicheck_data:
