@@ -19,12 +19,16 @@ from .mcp import (
     mcp_passthrough_interactive,
     unified_mcp_passthrough,
 )
+from .providers.factory import (
+    get_provider_manager,
+)
 from .scanners import (
     DependencyScanner,
     DockerScanner,
     GitHubRepoScanner,
     SecretsScanner,
 )
+from .scanners.scanner_with_provider import DependencyScannerWithProvider
 from .security import ComprehensiveSecurityCheck, SafetyAdvisor
 
 # Configure logging to stderr to avoid interfering with JSON-RPC on stdout
@@ -52,6 +56,37 @@ docker_scanner = None
 comprehensive_checker = None
 github_scanner = None
 
+# File providers and deployment mode
+file_provider_manager = None
+client_file_provider = None  # For client-delegated operations
+local_file_provider = None  # For server-side operations
+scanner_with_provider = None  # FileProvider-based scanner
+
+
+def _detect_deployment_mode() -> str:
+    """
+    VulniCheck is now HTTP-only.
+
+    Returns:
+        Always returns "http" since stdio support has been removed
+    """
+    # VulniCheck is now HTTP-only - no stdio support
+    return "http"
+
+
+def _get_server_name_from_context() -> str:
+    """
+    Try to determine the MCP server name from context.
+
+    Returns:
+        Server name for MCP client operations, defaults to "files"
+    """
+    # Check environment variable
+    server_name = os.environ.get("VULNICHECK_MCP_SERVER", "files")
+
+    # Could also check FastMCP context or request headers in the future
+    return server_name
+
 
 def _ensure_clients_initialized() -> None:
     """Ensure clients are initialized when needed."""
@@ -65,17 +100,63 @@ def _ensure_clients_initialized() -> None:
         secrets_scanner, \
         mcp_validator, \
         docker_scanner, \
-        github_scanner
+        github_scanner, \
+        file_provider_manager, \
+        client_file_provider, \
+        local_file_provider, \
+        scanner_with_provider
+
     if osv_client is None:
+        # Initialize vulnerability clients
         osv_client = OSVClient()
         nvd_client = NVDClient(api_key=os.environ.get("NVD_API_KEY"))
         github_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN"))
         circl_client = CIRCLClient()
         safety_db_client = SafetyDBClient()
+
+        # Initialize traditional scanners (for backward compatibility)
         scanner = DependencyScanner(osv_client, nvd_client, github_client, circl_client, safety_db_client)
-        secrets_scanner = SecretsScanner()
         mcp_validator = MCPValidator(local_only=True)
-        docker_scanner = DockerScanner(scanner)
+
+        # Initialize file provider manager
+        file_provider_manager = get_provider_manager()
+
+        # Initialize file providers
+        local_file_provider = file_provider_manager.get_local_provider()
+
+        # Determine if we need MCP client provider
+        deployment_mode = _detect_deployment_mode()
+        if deployment_mode == "http":
+            server_name = _get_server_name_from_context()
+            try:
+                client_file_provider = file_provider_manager.get_mcp_provider(server_name)
+                logger.info(f"Initialized MCP client file provider for server: {server_name}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize MCP client file provider: {e}")
+                logger.info("Falling back to local file provider")
+                client_file_provider = local_file_provider
+        else:
+            # Use local provider for both client and local operations in local mode
+            client_file_provider = local_file_provider
+
+        # Initialize FileProvider-based scanners for client operations
+        scanner_with_provider = DependencyScannerWithProvider(
+            client_file_provider,
+            osv_client,
+            nvd_client,
+            github_client,
+            circl_client,
+            safety_db_client
+        )
+
+        # Initialize secrets scanner with appropriate FileProvider
+        secrets_scanner = SecretsScanner(file_provider=client_file_provider)
+
+        # Initialize Docker scanner with appropriate FileProvider
+        docker_scanner = DockerScanner(scanner_with_provider, file_provider=client_file_provider)
+
+        # GitHub scanner always uses local provider for cloned repos
+        # Note: GitHubScanner creates its own DockerScanner with LocalFileProvider for cloned repos
         github_scanner = GitHubRepoScanner(scanner, secrets_scanner, docker_scanner)
 
 
@@ -401,9 +482,10 @@ async def scan_dependencies(
     try:
         logger.info(f"Starting scan of {file_path}")
         _ensure_clients_initialized()
-        # Use the global scanner instance
-        assert scanner is not None
-        results = await scanner.scan_file(file_path)
+
+        # Use FileProvider-based scanner for client-delegated operations
+        assert scanner_with_provider is not None
+        results = await scanner_with_provider.scan_file(file_path)
         logger.info(f"Scan complete, found {len(results)} packages")
 
         # Calculate totals
@@ -902,15 +984,25 @@ async def scan_for_secrets(
         _ensure_clients_initialized()
         assert secrets_scanner is not None
 
-        # Determine if scanning file or directory
-        scan_path = Path(path).resolve()
-
-        if scan_path.is_file():
-            secrets = secrets_scanner.scan_file(str(scan_path))
-        elif scan_path.is_dir():
-            secrets = secrets_scanner.scan_directory(str(scan_path), exclude_patterns)
-        else:
-            return f"Error: Path not found: {path}"
+        # Use async methods with FileProvider support
+        try:
+            # Check if it's a file or directory using the FileProvider
+            if await secrets_scanner.file_provider.is_file(path):
+                secrets = await secrets_scanner.scan_file_async(path)
+            elif await secrets_scanner.file_provider.is_directory(path):
+                secrets = await secrets_scanner.scan_directory_async(path, exclude_patterns)
+            else:
+                return f"Error: Path not found or not accessible: {path}"
+        except Exception as e:
+            logger.error(f"Error determining path type for {path}: {e}")
+            # Fallback to trying both methods
+            try:
+                secrets = await secrets_scanner.scan_file_async(path)
+            except:
+                try:
+                    secrets = await secrets_scanner.scan_directory_async(path, exclude_patterns)
+                except Exception as fallback_error:
+                    return f"Error: Could not scan path {path}: {fallback_error}"
 
         # Filter false positives
         secrets = secrets_scanner.filter_false_positives(secrets)
@@ -2896,9 +2988,9 @@ async def manage_trust_store(
 
 
 def main() -> None:
-    """Run the MCP server."""
-    # Print startup info to stderr to avoid interfering with stdio transport
-    print("VulniCheck MCP Server v0.1.0", file=sys.stderr)
+    """Run the MCP server in HTTP mode."""
+    # Print startup info
+    print("VulniCheck MCP Server v0.1.0 (HTTP-Only)", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
     print(
         "DISCLAIMER: Vulnerability data is provided 'AS IS' without warranty.",
@@ -2922,12 +3014,16 @@ def main() -> None:
         print("No GitHub token (rate limits apply)", file=sys.stderr)
         print("   Get one at: https://github.com/settings/tokens", file=sys.stderr)
 
+    # Get port from environment variable or use default
+    port = int(os.environ.get("MCP_PORT", "3000"))
+
     print("=" * 50, file=sys.stderr)
-    print("Running in stdio mode...", file=sys.stderr)
+    print(f"Starting HTTP server on port {port}...", file=sys.stderr)
 
     try:
-        # Run as stdio server
-        mcp.run(transport="stdio")
+        # Run as HTTP server only
+        import asyncio
+        asyncio.run(mcp.run_http_async(port=port))
     except KeyboardInterrupt:
         print("\nShutting down...", file=sys.stderr)
         sys.exit(0)

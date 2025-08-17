@@ -3,6 +3,10 @@
 This module provides comprehensive security scanning for GitHub repositories,
 including dependency vulnerabilities, exposed secrets, Dockerfile analysis,
 and GitHub-specific security configurations.
+
+This version uses the FileProvider interface to support both local server-side
+operations (for cloning repositories) and maintains compatibility with the
+updated scanner architecture.
 """
 
 import asyncio
@@ -66,7 +70,19 @@ class GitHubRepoInfo:
 
 
 class GitHubRepoScanner:
-    """Scanner for GitHub repositories."""
+    """
+    Scanner for GitHub repositories using hybrid FileProvider approach.
+    
+    This scanner uses LocalFileProvider for efficient server-side operations
+    when cloning and scanning repositories. The FileProvider-compatible scanners
+    (DependencyScanner, SecretsScanner, DockerScanner) are used with scoped
+    LocalFileProvider instances for optimal performance on cloned repositories.
+    
+    Architecture:
+    - Repository cloning: Direct git operations (server-side only)
+    - File scanning: FileProvider interface with LocalFileProvider
+    - Maintains existing public API for backward compatibility
+    """
 
     def __init__(
         self,
@@ -349,12 +365,15 @@ class GitHubRepoScanner:
         return results
 
     async def _scan_dependencies(self, repo_path: Path) -> dict[str, Any]:
-        """Scan repository dependencies."""
+        """Scan repository dependencies using FileProvider-compatible scanner."""
         findings: dict[str, Any] = {
             "vulnerabilities": [],
             "file_scanned": None,
             "packages_checked": 0
         }
+
+        if not self.dependency_scanner:
+            return findings
 
         # Look for dependency files
         dependency_files = [
@@ -371,8 +390,10 @@ class GitHubRepoScanner:
             file_path = repo_path / dep_file
             if file_path.exists():
                 findings["file_scanned"] = dep_file
-                # scan_file returns dict[str, list[Any]] format
-                result = await self.dependency_scanner.scan_file(str(file_path))  # type: ignore
+
+                # Use the existing dependency scanner directly - it should use FileProvider internally
+                # The scanner should handle the LocalFileProvider appropriately
+                result = await self.dependency_scanner.scan_file(str(file_path))
 
                 # Parse scanner results - the scanner returns vulnerabilities directly
                 all_vulns = []
@@ -407,42 +428,62 @@ class GitHubRepoScanner:
         return findings
 
     async def _scan_secrets(self, repo_path: Path, scan_config: ScanConfig) -> dict[str, Any]:
-        """Scan repository for exposed secrets."""
-        # Run synchronous scan in executor to avoid blocking
-        import asyncio
+        """Scan repository for exposed secrets using FileProvider-compatible scanner."""
+        # The SecretsScanner already uses FileProvider internally
+        # Run in executor to avoid blocking since scan_directory is synchronous
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
+        scan_results = await loop.run_in_executor(
             None,
-            self.secrets_scanner.scan_directory,  # type: ignore
+            self.secrets_scanner.scan_directory,
             str(repo_path),
             scan_config.excluded_patterns
         )
 
+        # Handle both old format (dict) and new format (list of SecretsScanResult)
+        if isinstance(scan_results, list):
+            # New format: list of SecretsScanResult objects
+            findings = {
+                "secrets": [secret.to_dict() for secret in scan_results],
+                "total_secrets": len(scan_results),
+                "files_scanned": len(set(result.file_path for result in scan_results))
+            }
+        else:
+            # Old format: dict - return as-is for backward compatibility
+            findings = scan_results
+
+        return findings
+
     async def _scan_dockerfiles(self, repo_path: Path) -> dict[str, Any]:
-        """Scan Dockerfiles in repository."""
+        """Scan Dockerfiles in repository using FileProvider-compatible scanner."""
         findings: dict[str, Any] = {
             "dockerfiles": [],
             "total_vulnerabilities": 0
         }
 
-        # Find all Dockerfiles
+        # Find all Dockerfiles using standard pathlib (more reliable)
         dockerfiles = list(repo_path.rglob("Dockerfile*"))
 
         for dockerfile in dockerfiles:
             if dockerfile.is_file():
-                result = await self.docker_scanner.scan_dockerfile_async(
-                    dockerfile_path=str(dockerfile)
-                )
+                try:
+                    # Use the existing docker scanner directly - it should handle FileProvider internally
+                    result = await self.docker_scanner.scan_dockerfile_async(
+                        dockerfile_path=str(dockerfile)
+                    )
 
-                relative_path = str(dockerfile.relative_to(repo_path))
-                docker_findings = {
-                    "path": relative_path,
-                    "vulnerabilities": result.get("vulnerabilities", []),
-                    "packages_found": result.get("packages_found", 0)
-                }
+                    relative_path = str(dockerfile.relative_to(repo_path))
+                    docker_findings = {
+                        "path": relative_path,
+                        "vulnerabilities": result.get("vulnerabilities", []),
+                        "packages_found": result.get("packages_found", 0)
+                    }
 
-                findings["dockerfiles"].append(docker_findings)
-                findings["total_vulnerabilities"] += len(docker_findings["vulnerabilities"])
+                    findings["dockerfiles"].append(docker_findings)
+                    findings["total_vulnerabilities"] += len(docker_findings["vulnerabilities"])
+
+                except Exception as e:
+                    logger.warning(f"Failed to scan Dockerfile {dockerfile}: {e}")
+                    continue
 
         return findings
 

@@ -1,10 +1,24 @@
 """Module for scanning files and directories for secrets using detect-secrets."""
 
+import asyncio
 import json
 import logging
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
+
+from ..providers import (
+    FileNotFoundError as FileProviderFileNotFoundError,
+)
+from ..providers import (
+    FileSizeLimitExceededError,
+)
+from ..providers import (
+    PermissionError as FileProviderPermissionError,
+)
+from ..providers.base import FileProvider
+from ..providers.factory import create_local_provider
 
 logger = logging.getLogger("vulnicheck.secrets")
 
@@ -89,8 +103,14 @@ class SecretsScanner:
         ".rst",
     }
 
-    def __init__(self) -> None:
-        """Initialize the secrets scanner."""
+    def __init__(self, file_provider: FileProvider | None = None) -> None:
+        """Initialize the secrets scanner.
+
+        Args:
+            file_provider: FileProvider instance for file operations.
+                          Defaults to LocalFileProvider for backward compatibility.
+        """
+        self.file_provider = file_provider or create_local_provider()
         self.baseline_file = ".secrets.baseline"
 
     def scan_file(self, file_path: str) -> list[SecretsScanResult]:
@@ -102,16 +122,31 @@ class SecretsScanner:
         Returns:
             List of detected secrets
         """
-        path = Path(file_path).resolve()
+        return asyncio.run(self._scan_file_async(file_path))
 
-        if not path.is_file():
-            raise FileNotFoundError(f"File not found: {path}")
+    async def _scan_file_async(self, file_path: str) -> list[SecretsScanResult]:
+        """Async implementation of scan_file."""
+        # Check if file exists
+        if not await self.file_provider.file_exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
 
-        # Security: Limit file size to 10MB
-        if path.stat().st_size > 10 * 1024 * 1024:
-            raise ValueError(f"File too large (max 10MB): {path}")
+        # Check if it's actually a file
+        if not await self.file_provider.is_file(file_path):
+            raise FileNotFoundError(f"Path is not a file: {file_path}")
 
-        return self._run_detect_secrets([str(path)])
+        # Check file size (FileProvider will enforce size limits)
+        try:
+            file_size = await self.file_provider.get_file_size(file_path)
+            if file_size > 10 * 1024 * 1024:  # 10MB limit
+                raise ValueError(f"File too large (max 10MB): {file_path}")
+        except FileProviderFileNotFoundError:
+            raise FileNotFoundError(f"File not found: {file_path}") from None
+        except FileProviderPermissionError as e:
+            raise PermissionError(str(e)) from e
+        except FileSizeLimitExceededError as e:
+            raise ValueError(str(e)) from e
+
+        return await self._run_detect_secrets_async([file_path])
 
     def scan_directory(
         self, directory_path: str, exclude_patterns: list[str] | None = None
@@ -125,26 +160,35 @@ class SecretsScanner:
         Returns:
             List of detected secrets
         """
-        path = Path(directory_path).resolve()
+        return asyncio.run(self._scan_directory_async(directory_path, exclude_patterns))
 
-        if not path.is_dir():
-            raise NotADirectoryError(f"Not a directory: {path}")
+    async def _scan_directory_async(
+        self, directory_path: str, exclude_patterns: list[str] | None = None
+    ) -> list[SecretsScanResult]:
+        """Async implementation of scan_directory."""
+        # Check if directory exists
+        if not await self.file_provider.file_exists(directory_path):
+            raise NotADirectoryError(f"Directory not found: {directory_path}")
+
+        # Check if it's actually a directory
+        if not await self.file_provider.is_directory(directory_path):
+            raise NotADirectoryError(f"Not a directory: {directory_path}")
 
         # Collect files to scan
-        files_to_scan = self._collect_files(path, exclude_patterns)
+        files_to_scan = await self._collect_files_async(directory_path, exclude_patterns)
 
         if not files_to_scan:
             return []
 
-        return self._run_detect_secrets(files_to_scan)
+        return await self._run_detect_secrets_async(files_to_scan)
 
-    def _collect_files(
-        self, directory: Path, exclude_patterns: list[str] | None = None
+    async def _collect_files_async(
+        self, directory_path: str, exclude_patterns: list[str] | None = None
     ) -> list[str]:
-        """Collect files to scan from a directory.
+        """Collect files to scan from a directory using FileProvider.
 
         Args:
-            directory: Directory to scan
+            directory_path: Directory to scan
             exclude_patterns: Additional patterns to exclude
 
         Returns:
@@ -156,36 +200,69 @@ class SecretsScanner:
         if exclude_patterns:
             exclude_set.update(exclude_patterns)
 
-        for file_path in directory.rglob("*"):
+        try:
+            # Get all files recursively
+            all_files = await self.file_provider.list_directory(
+                directory_path, recursive=True, max_files=2000
+            )
+        except FileProviderFileNotFoundError:
+            raise NotADirectoryError(f"Directory not found: {directory_path}") from None
+        except FileProviderPermissionError as e:
+            raise PermissionError(str(e)) from e
+
+        for file_path in all_files:
+            # Convert to Path for easier manipulation
+            path_obj = Path(file_path)
+
             # Skip if file is in excluded directory
-            if any(part in exclude_set for part in file_path.parts):
+            if any(part in exclude_set for part in path_obj.parts):
                 continue
 
             # Skip if file matches excluded pattern
-            if any(file_path.match(pattern) for pattern in exclude_set):
+            if any(path_obj.match(pattern) for pattern in exclude_set):
                 continue
 
-            # Only scan regular files
-            if not file_path.is_file():
-                continue
+            # Check if it's actually a file (not directory)
+            try:
+                if not await self.file_provider.is_file(file_path):
+                    continue
 
-            # Skip files larger than 1MB
-            if file_path.stat().st_size > 1024 * 1024:
-                continue
+                # Skip files larger than 1MB
+                file_size = await self.file_provider.get_file_size(file_path)
+                if file_size > 1024 * 1024:
+                    continue
 
-            # Check if file extension is in scan list or no extension
-            if file_path.suffix in self.SCAN_EXTENSIONS or not file_path.suffix:
-                files_to_scan.append(str(file_path))
+                # Check if file extension is in scan list or no extension
+                if path_obj.suffix in self.SCAN_EXTENSIONS or not path_obj.suffix:
+                    files_to_scan.append(file_path)
+
+            except (FileProviderFileNotFoundError, FileProviderPermissionError):
+                # Skip files we can't access
+                continue
 
             # Limit to 1000 files to prevent DoS
             if len(files_to_scan) >= 1000:
-                logger.warning(f"Limiting scan to 1000 files in {directory}")
+                logger.warning(f"Limiting scan to 1000 files in {directory_path}")
                 break
 
         return files_to_scan
 
-    def _run_detect_secrets(self, file_paths: list[str]) -> list[SecretsScanResult]:
-        """Run detect-secrets on the given files.
+    def _collect_files(
+        self, directory: Path, exclude_patterns: list[str] | None = None
+    ) -> list[str]:
+        """Collect files to scan from a directory (sync wrapper for backward compatibility).
+
+        Args:
+            directory: Directory to scan
+            exclude_patterns: Additional patterns to exclude
+
+        Returns:
+            List of file paths to scan
+        """
+        return asyncio.run(self._collect_files_async(str(directory), exclude_patterns))
+
+    async def _run_detect_secrets_async(self, file_paths: list[str]) -> list[SecretsScanResult]:
+        """Run detect-secrets on the given files using FileProvider.
 
         Args:
             file_paths: List of file paths to scan
@@ -196,9 +273,47 @@ class SecretsScanner:
         if not file_paths:
             return []
 
+        # Create temporary files with the actual content from FileProvider
+        temp_dir = None
+        temp_file_mapping = {}  # Maps temp file path to original file path
+
         try:
-            # Run detect-secrets scan
-            cmd = ["detect-secrets", "scan", "--no-keyword-scan"] + file_paths
+            temp_dir = tempfile.mkdtemp(prefix="vulnicheck_secrets_")
+            temp_files = []
+
+            # Read files and create temporary files
+            for original_path in file_paths:
+                try:
+                    # Read file content using FileProvider
+                    content = await self.file_provider.read_file(original_path)
+
+                    # Create temporary file with same extension for better detection
+                    path_obj = Path(original_path)
+                    suffix = path_obj.suffix or '.txt'
+
+                    with tempfile.NamedTemporaryFile(
+                        mode='w',
+                        encoding='utf-8',
+                        suffix=suffix,
+                        dir=temp_dir,
+                        delete=False
+                    ) as tmp_file:
+                        tmp_file.write(content)
+                        temp_files.append(tmp_file.name)
+                        temp_file_mapping[tmp_file.name] = original_path
+
+                except (FileProviderFileNotFoundError, FileProviderPermissionError) as e:
+                    logger.warning(f"Skipping file {original_path}: {e}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Error reading file {original_path}: {e}")
+                    continue
+
+            if not temp_files:
+                return []
+
+            # Run detect-secrets scan on temporary files
+            cmd = ["detect-secrets", "scan"] + temp_files
             result = subprocess.run(
                 cmd, capture_output=True, text=True, check=False, timeout=60
             )
@@ -214,12 +329,13 @@ class SecretsScanner:
                 logger.error("Failed to parse detect-secrets output")
                 return []
 
-            # Convert to SecretsScanResult objects
+            # Convert to SecretsScanResult objects, mapping back to original file paths
             secrets = []
-            for file_path, file_results in scan_results.get("results", {}).items():
+            for temp_file_path, file_results in scan_results.get("results", {}).items():
+                original_file_path = temp_file_mapping.get(temp_file_path, temp_file_path)
                 for secret_data in file_results:
                     secret = SecretsScanResult(
-                        file_path=file_path,
+                        file_path=original_file_path,
                         line_number=secret_data.get("line_number", 0),
                         secret_type=secret_data.get("type", "Unknown"),
                         hashed_secret=secret_data.get("hashed_secret", ""),
@@ -235,6 +351,25 @@ class SecretsScanner:
         except Exception as e:
             logger.error(f"Error running detect-secrets: {e}")
             return []
+        finally:
+            # Clean up temporary files and directory
+            if temp_dir:
+                import shutil
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary directory {temp_dir}: {e}")
+
+    def _run_detect_secrets(self, file_paths: list[str]) -> list[SecretsScanResult]:
+        """Run detect-secrets on the given files (sync wrapper for backward compatibility).
+
+        Args:
+            file_paths: List of file paths to scan
+
+        Returns:
+            List of detected secrets
+        """
+        return asyncio.run(self._run_detect_secrets_async(file_paths))
 
     def filter_false_positives(
         self, secrets: list[SecretsScanResult]

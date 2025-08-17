@@ -25,7 +25,8 @@ def scanner(mock_clients):
 class TestPythonImportScanning:
     """Test Python import scanning functionality."""
 
-    def test_extract_imports_from_file(self, scanner, tmp_path):
+    @pytest.mark.asyncio
+    async def test_extract_imports_from_file(self, scanner, tmp_path):
         """Test extracting imports from a Python file."""
         # Create a test Python file with various import styles
         test_file = tmp_path / "test_imports.py"
@@ -43,7 +44,7 @@ from . import local_module
 from ..parent import another_module
 """)
 
-        imports = scanner._extract_imports_from_file(test_file)
+        imports = await scanner._extract_imports_from_file(str(test_file))
 
         # Should extract top-level module names only
         expected = {
@@ -59,23 +60,25 @@ from ..parent import another_module
         }
         assert imports == expected
 
-    def test_extract_imports_syntax_error(self, scanner, tmp_path):
+    @pytest.mark.asyncio
+    async def test_extract_imports_syntax_error(self, scanner, tmp_path):
         """Test handling of files with syntax errors."""
         test_file = tmp_path / "bad_syntax.py"
         test_file.write_text("import requests\nthis is not valid python syntax")
 
         # Should not raise an exception
-        imports = scanner._extract_imports_from_file(test_file)
+        imports = await scanner._extract_imports_from_file(str(test_file))
         assert imports == set()
 
-    def test_extract_imports_encoding_error(self, scanner, tmp_path):
+    @pytest.mark.asyncio
+    async def test_extract_imports_encoding_error(self, scanner, tmp_path):
         """Test handling of files with encoding issues."""
         test_file = tmp_path / "bad_encoding.py"
         # Write binary data that's not valid UTF-8
         test_file.write_bytes(b"\xff\xfe\x00\x00import requests")
 
         # Should not raise an exception
-        imports = scanner._extract_imports_from_file(test_file)
+        imports = await scanner._extract_imports_from_file(str(test_file))
         assert imports == set()
 
     def test_is_stdlib_module(self, scanner):
@@ -93,7 +96,8 @@ from ..parent import another_module
         assert not scanner._is_stdlib_module("numpy")
         assert not scanner._is_stdlib_module("pandas")
 
-    def test_scan_python_imports(self, scanner, tmp_path):
+    @pytest.mark.asyncio
+    async def test_scan_python_imports(self, scanner, tmp_path):
         """Test scanning a directory for Python imports."""
         # Create a directory structure with Python files
         (tmp_path / "subdir").mkdir()
@@ -116,13 +120,14 @@ from requests import Session
         large_file = tmp_path / "large.py"
         large_file.write_text("import pandas\n" + "# " * 1024 * 1024)  # > 1MB
 
-        imports = scanner._scan_python_imports(tmp_path)
+        imports = await scanner._scan_python_imports(str(tmp_path))
 
         # Should include imports from main.py and utils.py but not large.py
         expected = {"os", "requests", "flask", "json", "numpy"}
         assert imports == expected
 
-    def test_scan_python_imports_limit(self, scanner, tmp_path):
+    @pytest.mark.asyncio
+    async def test_scan_python_imports_limit(self, scanner, tmp_path):
         """Test that scanning limits the number of files processed."""
         # Create more than 1000 Python files
         for i in range(1100):
@@ -133,7 +138,7 @@ from requests import Session
             all_files = list(tmp_path.glob("*.py"))
             mock_rglob.return_value = all_files
 
-            imports = scanner._scan_python_imports(tmp_path)
+            imports = await scanner._scan_python_imports(str(tmp_path))
 
             # Should process at most 1000 files
             assert len(imports) <= 1000

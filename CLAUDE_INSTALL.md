@@ -95,6 +95,15 @@ claude mcp add vulnicheck -e OPENAI_API_KEY=<INSERT_OPENAI_KEY_HERE> -e ANTHROPI
 claude mcp add vulnicheck -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
 ```
 
+**For HTTP-only deployment (client delegates file operations):**
+```bash
+claude mcp add vulnicheck -e VULNICHECK_HTTP_ONLY=true -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
+
+**For HTTP-only with API keys:**
+```bash
+claude mcp add vulnicheck -e VULNICHECK_HTTP_ONLY=true -e OPENAI_API_KEY=<INSERT_USER_PROVIDED_KEY_HERE> -- uvx --from git+https://github.com/andrasfe/vulnicheck.git vulnicheck
+```
 
 ### Step 3: Request Claude Code Restart
 
@@ -109,6 +118,36 @@ Installation complete!
 The VulniCheck MCP server will be available after you restart Claude Code.
 ```
 
+## HTTP-Only Deployment Mode
+
+VulniCheck now supports HTTP-only deployment where the server cannot access local files directly. Instead, it delegates file operations to the MCP client (like Claude Code).
+
+### When to Use HTTP-Only Mode:
+- Running VulniCheck on a remote server
+- Security requirements prevent server from accessing local files
+- Client wants full control over file access permissions
+
+### What HTTP-Only Mode Does:
+- **Local file scans** (scan_dependencies, scan_for_secrets, scan_dockerfile) request file content from the MCP client
+- **Remote operations** (scan_github_repo, check_package_vulnerabilities) still work server-side
+- Requires MCP client to implement file operation callback tools
+
+### MCP Client Requirements for HTTP-Only Mode:
+
+**IMPORTANT**: For HTTP-only mode to work, Claude Code (or other MCP client) must implement these callback tools:
+
+1. `read_file` - Read text file content
+2. `read_file_binary` - Read binary file content (base64 encoded)
+3. `list_directory` - List directory contents with pattern matching
+4. `file_exists` - Check if file/directory exists
+5. `get_file_stats` - Get file metadata and statistics
+
+### Current Status:
+- **Standard Mode**: Fully supported (server accesses files directly)
+- **HTTP-Only Mode**: Requires MCP client file operation tools (not yet implemented in Claude Code)
+
+**Recommendation**: Use standard mode unless you specifically need HTTP-only deployment.
+
 ## Notes for Agents
 
 - Replace `<INSERT_USER_PROVIDED_KEY_HERE>` with the actual API key values the user provides
@@ -117,3 +156,4 @@ The VulniCheck MCP server will be available after you restart Claude Code.
 - The entire command must be on ONE LINE for it to work properly
 - If the user reports that the command failed, first check if line breaks were the issue
 - The MCP server will not be available until Claude Code is restarted by the USER
+- **HTTP-Only Mode**: Only use if you understand the MCP client requirements above

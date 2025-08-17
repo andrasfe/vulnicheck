@@ -1,7 +1,6 @@
 import hashlib
 import os
 import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -140,7 +139,8 @@ scipy = "~1.7.0"
         finally:
             os.unlink(pyproject_path)
 
-    def test_parse_requirements_txt(self, scanner):
+    @pytest.mark.asyncio
+    async def test_parse_requirements_txt(self, scanner):
         content = """
 # Comment
 numpy==1.19.0
@@ -158,7 +158,7 @@ package-with-extras[dev,test]>=1.0.0
             f.flush()
 
             try:
-                deps = scanner._parse_requirements(Path(f.name))
+                deps = await scanner._parse_requirements(f.name)
 
                 assert len(deps) >= 4
                 assert ("numpy", "==1.19.0") in deps
@@ -169,7 +169,8 @@ package-with-extras[dev,test]>=1.0.0
             finally:
                 os.unlink(f.name)
 
-    def test_parse_pyproject_toml_empty_sections(self, scanner):
+    @pytest.mark.asyncio
+    async def test_parse_pyproject_toml_empty_sections(self, scanner):
         content = """
 [build-system]
 requires = ["setuptools"]
@@ -183,7 +184,7 @@ name = "test-project"
             f.flush()
 
             try:
-                deps = scanner._parse_pyproject(Path(f.name))
+                deps = await scanner._parse_pyproject(f.name)
                 assert len(deps) == 0
 
             finally:
@@ -265,7 +266,8 @@ name = "test-project"
         versions = scanner._get_affected_versions(vuln, "django")
         assert versions == []
 
-    def test_calculate_file_hash(self, scanner):
+    @pytest.mark.asyncio
+    async def test_calculate_file_hash(self, scanner):
         content = b"test content for hashing"
         expected_hash = hashlib.md5(content).hexdigest()
 
@@ -274,13 +276,14 @@ name = "test-project"
             f.flush()
 
             try:
-                file_hash = scanner.calculate_file_hash(f.name)
+                file_hash = await scanner.calculate_file_hash(f.name)
                 assert file_hash == expected_hash
 
             finally:
                 os.unlink(f.name)
 
-    def test_parse_poetry_version_conversions(self, scanner):
+    @pytest.mark.asyncio
+    async def test_parse_poetry_version_conversions(self, scanner):
         content = """
 [tool.poetry.dependencies]
 package1 = "^1.2.3"
@@ -295,7 +298,7 @@ package5 = {git = "https://github.com/test/repo.git"}
             f.flush()
 
             try:
-                deps = scanner._parse_pyproject(Path(f.name))
+                deps = await scanner._parse_pyproject(f.name)
 
                 # Check version conversions
                 assert ("package1", ">=1.2.3") in deps  # ^ converted to >=
@@ -391,7 +394,8 @@ setup(
         finally:
             os.unlink(setup_path)
 
-    def test_parse_setup_py_simple(self, scanner):
+    @pytest.mark.asyncio
+    async def test_parse_setup_py_simple(self, scanner):
         """Test parsing a simple setup.py file."""
         setup_content = '''
 from setuptools import setup
@@ -410,7 +414,7 @@ setup(
             f.flush()
 
             try:
-                deps = scanner._parse_setup_py(Path(f.name))
+                deps = await scanner._parse_setup_py(f.name)
 
                 assert len(deps) == 2
                 assert ("numpy", "==1.19.0") in deps
@@ -419,7 +423,8 @@ setup(
             finally:
                 os.unlink(f.name)
 
-    def test_parse_setup_py_with_variables(self, scanner):
+    @pytest.mark.asyncio
+    async def test_parse_setup_py_with_variables(self, scanner):
         """Test parsing setup.py that uses variables for install_requires."""
         setup_content = '''
 from setuptools import setup
@@ -437,7 +442,7 @@ setup(
             f.flush()
 
             try:
-                deps = scanner._parse_setup_py(Path(f.name))
+                deps = await scanner._parse_setup_py(f.name)
 
                 # Should be empty because we can't resolve variables
                 assert len(deps) == 0
@@ -460,22 +465,15 @@ setup(
 )
 '''
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(setup_content)
-            f.flush()
+        deps = scanner._parse_setup_py_fallback(setup_content)
 
-            try:
-                deps = scanner._parse_setup_py_fallback(Path(f.name))
+        assert len(deps) == 3
+        assert ("numpy", "==1.19.0") in deps
+        assert ("flask", ">=2.0.0") in deps
+        assert ("requests", "~=2.28.0") in deps
 
-                assert len(deps) == 3
-                assert ("numpy", "==1.19.0") in deps
-                assert ("flask", ">=2.0.0") in deps
-                assert ("requests", "~=2.28.0") in deps
-
-            finally:
-                os.unlink(f.name)
-
-    def test_parse_setup_py_malformed(self, scanner):
+    @pytest.mark.asyncio
+    async def test_parse_setup_py_malformed(self, scanner):
         """Test parsing malformed setup.py files."""
         setup_content = '''
 # This is not valid Python syntax
@@ -494,7 +492,7 @@ setup(
             f.flush()
 
             try:
-                deps = scanner._parse_setup_py(Path(f.name))
+                deps = await scanner._parse_setup_py(f.name)
 
                 # Should fall back to regex parsing and still find numpy
                 assert len(deps) == 1

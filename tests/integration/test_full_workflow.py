@@ -43,7 +43,7 @@ class TestFullWorkflow:
             scanner = DependencyScanner(osv_client, nvd_client)
 
             # This is a basic test - real workflow tests would use the MCP interface
-            results = await scanner.scan_file(req_file)
+            results = await scanner.scan_file(str(req_file))
             assert isinstance(results, dict)
 
 
