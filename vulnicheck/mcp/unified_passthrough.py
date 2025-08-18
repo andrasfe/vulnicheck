@@ -951,6 +951,27 @@ Please review this operation carefully before proceeding.
 
         return True
 
+    async def get_available_servers(self) -> dict[str, list[str]]:
+        """Get available servers and their tools."""
+        from .mcp_config_cache import MCPConfigCache
+        
+        config_cache = MCPConfigCache()
+        server_names = config_cache.get_available_servers(self.agent_name)
+        
+        available = {}
+        for server_name in server_names:
+            try:
+                config = await config_cache.get_server_config(self.agent_name, server_name)
+                if config and 'tools' in config:
+                    available[server_name] = list(config['tools'].keys())
+                else:
+                    available[server_name] = []
+            except Exception as e:
+                logger.warning(f"Failed to get tools for server {server_name}: {e}")
+                available[server_name] = []
+        
+        return available
+
     async def close(self) -> None:
         """Clean up resources."""
         if self.connection_pool:

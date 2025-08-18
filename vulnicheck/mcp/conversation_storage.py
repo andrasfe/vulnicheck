@@ -55,11 +55,20 @@ class ConversationStorage:
             base_path = Path.cwd()
 
         self.storage_dir = base_path / ".vulnicheck" / "conversations"
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-
-        # Index file to track all conversations
+        self._storage_enabled = True
+        
+        # Always set the index_file path, even if storage is disabled
         self.index_file = self.storage_dir / "index.json"
-        self._ensure_index()
+        
+        try:
+            self.storage_dir.mkdir(parents=True, exist_ok=True)
+            self._ensure_index()
+        except (PermissionError, OSError) as e:
+            # Disable storage if we can't write to the directory
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Cannot create conversation storage directory: {e}. Conversation storage disabled.")
+            self._storage_enabled = False
 
     def _ensure_index(self) -> None:
         """Ensure the index file exists."""
@@ -68,17 +77,25 @@ class ConversationStorage:
 
     def _load_index(self) -> list[dict[str, Any]]:
         """Load the conversation index."""
+        if not self._storage_enabled:
+            return []
         try:
             with open(self.index_file) as f:
                 data = json.load(f)
                 return data if isinstance(data, list) else []
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (FileNotFoundError, json.JSONDecodeError, PermissionError, OSError):
             return []
 
     def _save_index(self, index: list[dict[str, Any]]) -> None:
         """Save the conversation index."""
-        with open(self.index_file, "w") as f:
-            json.dump(index, f, indent=2, default=str)
+        if not self._storage_enabled:
+            return
+        try:
+            with open(self.index_file, "w") as f:
+                json.dump(index, f, indent=2, default=str)
+        except (PermissionError, OSError):
+            # Ignore save errors if storage is problematic
+            pass
 
     def start_conversation(self, client: str, server: str, metadata: dict[str, Any] | None = None) -> Conversation:
         """Start a new conversation session.
@@ -133,6 +150,16 @@ class ConversationStorage:
         Returns:
             The created message
         """
+        if not self._storage_enabled:
+            # Return a dummy message if storage is disabled
+            return ConversationMessage(
+                direction="request",
+                client=client,
+                server=server,
+                tool=tool,
+                parameters=parameters
+            )
+            
         conversation = self.get_conversation(conversation_id)
         if not conversation:
             # Auto-create conversation if it doesn't exist
@@ -179,6 +206,18 @@ class ConversationStorage:
         Returns:
             The created message
         """
+        if not self._storage_enabled:
+            # Return a dummy message if storage is disabled
+            return ConversationMessage(
+                direction="response",
+                client=client,
+                server=server,
+                tool=tool,
+                result=result,
+                error=error,
+                risk_assessment=risk_assessment
+            )
+            
         conversation = self.get_conversation(conversation_id)
         if not conversation:
             raise ValueError(f"Conversation {conversation_id} not found")
@@ -353,9 +392,15 @@ class ConversationStorage:
 
     def _save_conversation(self, conversation: Conversation) -> None:
         """Save a conversation to disk."""
-        conversation_file = self.storage_dir / f"{conversation.id}.json"
-        with open(conversation_file, "w") as f:
-            json.dump(conversation.model_dump(), f, indent=2, default=str)
+        if not self._storage_enabled:
+            return
+        try:
+            conversation_file = self.storage_dir / f"{conversation.id}.json"
+            with open(conversation_file, "w") as f:
+                json.dump(conversation.model_dump(), f, indent=2, default=str)
+        except (PermissionError, OSError):
+            # Ignore save errors if storage is problematic
+            pass
 
     def _update_index_timestamp(self, conversation_id: str) -> None:
         """Update the timestamp in the index for a conversation."""
