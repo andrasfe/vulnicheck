@@ -3,13 +3,30 @@ version: '3.8'
 services:
   vulnicheck:
     build: .
+    image: vulnicheck:latest
+    container_name: vulnicheck-container
     ports:
       - "3000:3000"
-    volumes:
-      - vulnicheck_data:/home/vulnicheck/.vulnicheck
     environment:
+      - VULNICHECK_HTTP_ONLY=true
       - MCP_PORT=3000
-    container_name: vulnicheck-container
+      - VULNICHECK_DEBUG=false
+      # Uncomment and set these for enhanced functionality
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # - GITHUB_TOKEN=${GITHUB_TOKEN}
+      # - NVD_API_KEY=${NVD_API_KEY}
+    volumes:
+      # Optional: Mount conversation storage
+      - vulnicheck_data:/home/vulnicheck/.vulnicheck
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   vulnicheck_data:
+    driver: local
