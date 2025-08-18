@@ -1,6 +1,6 @@
 # VulniCheck - AI-Powered Security Scanner
 
-VulniCheck provides comprehensive security analysis for Python projects and GitHub repositories using AI-powered vulnerability detection. It runs as an HTTP-only MCP server with support for both local file access and client-delegated file operations via the FileProvider architecture.
+VulniCheck provides comprehensive security analysis for Python projects and GitHub repositories using AI-powered vulnerability detection. It runs as a Docker-based HTTP MCP server, providing secure containerized deployment with comprehensive vulnerability scanning capabilities.
 
 ## Quick Start
 
@@ -35,8 +35,8 @@ VulniCheck will:
 
 ## Key Features
 
-- **HTTP-Only Architecture**: Modern HTTP server deployment with flexible file operations
-- **FileProvider System**: Supports both local file access and client-delegated operations
+- **Docker Deployment**: Secure containerized deployment with HTTP streaming
+- **Production Ready**: Scalable HTTP server architecture
 - **Comprehensive Coverage**: Queries 5+ vulnerability databases (OSV.dev, NVD, GitHub Advisory, CIRCL, Safety DB)
 - **GitHub Integration**: Scan any public/private GitHub repository directly
 - **AI-Powered Analysis**: Uses OpenAI/Anthropic APIs for intelligent security assessment
@@ -48,9 +48,8 @@ VulniCheck will:
 
 ## Requirements
 
-- Python 3.10+
+- Docker
 - Claude Code or compatible MCP client with HTTP transport support
-- For HTTP-only mode: MCP client must implement file operation callback tools
 
 ## Supported File Types
 
@@ -59,42 +58,31 @@ VulniCheck will:
 - **Secrets**: All text-based files (excludes binary files, git history)
 - **GitHub**: Any public or private repository URL
 
-## Deployment Modes
+## Deployment
 
-### Local Mode (Development)
+### Docker Setup (Recommended)
 ```bash
-# Direct filesystem access for all operations
-export VULNICHECK_HTTP_ONLY=false
-vulnicheck  # Starts HTTP server on port 3000
+# Clone and build
+git clone -b docker-deployment https://github.com/andrasfe/vulnicheck.git
+cd vulnicheck
+docker build -t vulnicheck .
+
+# Run with optional API keys
+docker run -d --name vulnicheck -p 3000:3000 \
+  -e OPENAI_API_KEY=your-key \
+  -e ANTHROPIC_API_KEY=your-key \
+  vulnicheck
 ```
 
-### HTTP-Only Mode (Production)
-```bash
-# Client-delegated file operations via MCP
-export VULNICHECK_HTTP_ONLY=true
-export VULNICHECK_MCP_SERVER=files
-vulnicheck  # Requires MCP client with file callback tools
-```
-
-## MCP Client Requirements
-
-For HTTP-only deployment, your MCP client must implement these callback tools:
-- `read_file` - Read text file contents
-- `read_file_binary` - Read binary files as base64
-- `list_directory` - List directory contents
-- `file_exists` - Check file/directory existence
-- `get_file_stats` - Get file metadata
-
-See `docs/mcp_client_callback_tools_specification.md` for complete details.
+The server will be available at http://localhost:3000/mcp
 
 ## Support
 
-- **Architecture Guide**: See `docs/file_provider_architecture.md` for FileProvider details
-- **Client Integration**: See `docs/mcp_client_callback_tools_specification.md`
-- **Complete Documentation**: See [DETAILS.md](DETAILS.md) for full documentation
+- **Installation Guide**: See [CLAUDE_INSTALL.md](CLAUDE_INSTALL.md) for setup instructions
+- **Project Documentation**: See [CLAUDE.md](CLAUDE.md) for development details
 - **Issues**: Report problems at https://github.com/andrasfe/vulnicheck/issues
-- **Development**: Contributions welcome! See DETAILS.md for development setup
+- **Development**: Contributions welcome! See CLAUDE.md for development setup
 
 ---
 
-**DISCLAIMER**: Vulnerability data provided "AS IS" without warranty. Users responsible for verification. See DETAILS.md for full disclaimer.
+**DISCLAIMER**: Vulnerability data provided "AS IS" without warranty. Users responsible for verification.

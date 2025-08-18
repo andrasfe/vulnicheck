@@ -21,15 +21,14 @@ import base64
 import hashlib
 
 # Import the reference implementation
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.append(str(Path(__file__).parent.parent / "examples"))
-
-from mcp_client_file_provider_reference import (
+# Test utilities now in tests directory
+from tests.mcp_client_file_provider_reference import (
     FileProviderConfig,
+    _config,
     calculate_file_hash,
     check_file_size,
     configure_file_provider,
@@ -93,27 +92,31 @@ def configure_test_provider(tmp_path):
     """Configure file provider for testing."""
     # Store original config
     original_config = {
-        'MAX_FILE_SIZE': FileProviderConfig.MAX_FILE_SIZE,
-        'ALLOWED_PATHS': FileProviderConfig.ALLOWED_PATHS.copy(),
-        'BLOCKED_PATHS': FileProviderConfig.BLOCKED_PATHS.copy(),
-        'ENABLE_PATH_RESTRICTIONS': FileProviderConfig.ENABLE_PATH_RESTRICTIONS
+        'MAX_FILE_SIZE': _config.MAX_FILE_SIZE,
+        'ALLOWED_PATHS': _config.ALLOWED_PATHS.copy(),
+        'BLOCKED_PATHS': _config.BLOCKED_PATHS.copy(),
+        'ENABLE_PATH_RESTRICTIONS': _config.ENABLE_PATH_RESTRICTIONS
     }
 
     # Configure for testing
-    configure_file_provider(
-        max_file_size=10 * 1024 * 1024,  # 10MB
-        allowed_paths=[str(tmp_path)],
-        blocked_paths=[],
-        enable_audit_log=False
+    test_config = FileProviderConfig(
+        MAX_FILE_SIZE=10 * 1024 * 1024,  # 10MB
+        ALLOWED_PATHS=[str(tmp_path)],
+        BLOCKED_PATHS=[],
+        ENABLE_PATH_RESTRICTIONS=False
     )
+    configure_file_provider(test_config)
 
     yield
 
     # Restore original config
-    FileProviderConfig.MAX_FILE_SIZE = original_config['MAX_FILE_SIZE']
-    FileProviderConfig.ALLOWED_PATHS = original_config['ALLOWED_PATHS']
-    FileProviderConfig.BLOCKED_PATHS = original_config['BLOCKED_PATHS']
-    FileProviderConfig.ENABLE_PATH_RESTRICTIONS = original_config['ENABLE_PATH_RESTRICTIONS']
+    restore_config = FileProviderConfig(
+        MAX_FILE_SIZE=original_config['MAX_FILE_SIZE'],
+        ALLOWED_PATHS=original_config['ALLOWED_PATHS'],
+        BLOCKED_PATHS=original_config['BLOCKED_PATHS'],
+        ENABLE_PATH_RESTRICTIONS=original_config['ENABLE_PATH_RESTRICTIONS']
+    )
+    configure_file_provider(restore_config)
 
 class TestPathValidation:
     """Test path validation and security."""
@@ -572,15 +575,17 @@ class TestSecurityFeatures:
 
     def test_configuration_changes(self):
         """Test dynamic configuration changes."""
-        original_size = FileProviderConfig.MAX_FILE_SIZE
+        from tests.mcp_client_file_provider_reference import _config
+
+        original_size = _config.MAX_FILE_SIZE
 
         # Change configuration
         configure_file_provider(max_file_size=5000)
-        assert FileProviderConfig.MAX_FILE_SIZE == 5000
+        assert _config.MAX_FILE_SIZE == 5000
 
         # Restore
         configure_file_provider(max_file_size=original_size)
-        assert original_size == FileProviderConfig.MAX_FILE_SIZE
+        assert original_size == _config.MAX_FILE_SIZE
 
 class TestProviderInfo:
     """Test provider information and metadata."""

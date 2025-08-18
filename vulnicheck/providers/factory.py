@@ -8,7 +8,7 @@ appropriate FileProvider instances based on deployment context.
 import logging
 import os
 
-from ..mcp.mcp_client import MCPClient
+from ..mcp.mcp_client import MCPConnection
 from .base import FileProvider
 from .local import LocalFileProvider
 from .mcp_client import MCPClientFileProvider
@@ -25,7 +25,7 @@ class FileProviderManager:
     based on deployment context.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the file provider manager."""
         self._local_provider: LocalFileProvider | None = None
         self._mcp_providers: dict[str, MCPClientFileProvider] = {}
@@ -49,7 +49,7 @@ class FileProviderManager:
     def get_mcp_provider(
         self,
         server_name: str,
-        client: MCPClient | None = None,
+        client: MCPConnection | None = None,
         timeout: int = 30
     ) -> MCPClientFileProvider:
         """
@@ -57,7 +57,7 @@ class FileProviderManager:
 
         Args:
             server_name: Name of the MCP server
-            client: Optional existing MCPClient instance
+            client: Optional existing MCPConnection instance
             timeout: Timeout for MCP operations
 
         Returns:
@@ -80,7 +80,7 @@ class FileProviderManager:
         prefer_local: bool = True,
         server_name: str | None = None,
         base_path: str | None = None,
-        client: MCPClient | None = None,
+        client: MCPConnection | None = None,
         timeout: int = 30
     ) -> FileProvider:
         """
@@ -141,7 +141,7 @@ def create_local_provider(base_path: str | None = None) -> LocalFileProvider:
 
 def create_mcp_provider(
     server_name: str,
-    client: MCPClient | None = None,
+    client: MCPConnection | None = None,
     timeout: int = 30
 ) -> MCPClientFileProvider:
     """
@@ -224,7 +224,7 @@ def get_local_file_provider(base_path: str | None = None) -> LocalFileProvider:
 
 def get_mcp_file_provider(
     server_name: str,
-    client: MCPClient | None = None,
+    client: MCPConnection | None = None,
     timeout: int = 30
 ) -> MCPClientFileProvider:
     """Get MCP file provider (backward compatibility)."""

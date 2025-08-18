@@ -6,6 +6,7 @@ operations to enable both local and remote (MCP client-delegated) file access.
 """
 
 import hashlib
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
@@ -31,7 +32,7 @@ class FileStats:
     is_directory: bool = False
 
     @classmethod
-    def from_stat(cls, path: str, stat_result, is_readable: bool = True) -> "FileStats":
+    def from_stat(cls, path: str, stat_result: os.stat_result, is_readable: bool = True) -> "FileStats":
         """Create FileStats from os.stat result."""
         import stat
 

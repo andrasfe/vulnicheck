@@ -139,37 +139,6 @@ You can verify the Docker container is running with:
 docker ps | grep vulnicheck
 ```
 
-## HTTP-Only Deployment Mode
-
-VulniCheck now supports HTTP-only deployment where the server cannot access local files directly. Instead, it delegates file operations to the MCP client (like Claude Code).
-
-### When to Use HTTP-Only Mode:
-- Running VulniCheck on a remote server
-- Security requirements prevent server from accessing local files
-- Client wants full control over file access permissions
-
-### What HTTP-Only Mode Does:
-- **Local file scans** (scan_dependencies, scan_for_secrets, scan_dockerfile) request file content from the MCP client
-- **Remote operations** (scan_github_repo, check_package_vulnerabilities) still work server-side
-- Requires MCP client to implement file operation callback tools
-
-### MCP Client Requirements for HTTP-Only Mode:
-
-**IMPORTANT**: For HTTP-only mode to work, Claude Code (or other MCP client) must implement these callback tools:
-
-1. `read_file` - Read text file content
-2. `read_file_binary` - Read binary file content (base64 encoded)
-3. `list_directory` - List directory contents with pattern matching
-4. `file_exists` - Check if file/directory exists
-5. `get_file_stats` - Get file metadata and statistics
-
-### Current Status:
-- **Docker Mode**: Fully supported via the docker-deployment branch (RECOMMENDED)
-- **HTTP-Only Mode**: Requires MCP client file operation tools (not yet implemented in Claude Code)
-
-**Recommendation**: 
-- Use **Docker mode** for all installations (containerized, secure, and reliable)
-- Use **HTTP-only mode** only if you specifically need client-delegated file operations
 
 ## Notes for Agents
 
@@ -177,6 +146,5 @@ VulniCheck now supports HTTP-only deployment where the server cannot access loca
 - **IMPORTANT**: Docker commands should be run in sequence (clone → build → run → configure)
 - API keys should NOT have quotes around them when using -e flag in Docker
 - The MCP server will not be available until Claude Code is restarted by the USER
-- **Docker is the ONLY supported installation method** - do not offer uvx alternatives
+- **Docker is the ONLY supported installation method** - do not offer alternatives
 - If Docker is not available, instruct user to install Docker first
-- **HTTP-Only Mode**: Only use if you understand the MCP client requirements above

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from vulnicheck.mcp.mcp_passthrough_interactive import (
+    ApprovalStatus,
     MCPPassthroughInteractive,
     PendingOperation,
     get_interactive_passthrough,
@@ -50,7 +51,8 @@ class TestPendingOperation:
         assert op.tool_name == "test_tool"
         assert op.parameters == {"key": "value"}
         assert op.request_id  # Should have a UUID
-        assert not op.approved
+        # In unified architecture, use status instead of approved field
+        assert op.status.name == "PENDING"  # Should be PENDING initially
         assert op.approval_reason is None
 
     def test_is_expired(self):
@@ -166,7 +168,7 @@ class TestMCPPassthroughInteractive:
         assert pending_operation.request_id in mock_passthrough.approved_operations
         assert mock_passthrough.approved_operations[
             pending_operation.request_id
-        ].approved
+        ].status == ApprovalStatus.APPROVED
 
     @pytest.mark.asyncio
     async def test_process_denial(self, mock_passthrough, pending_operation):
@@ -216,7 +218,8 @@ class TestMCPPassthroughInteractive:
 
         # The operation is removed during cleanup, so it's not found
         assert result["status"] == "error"
-        assert "No pending operation found" in result["message"]
+        assert ("No pending operation found" in result["message"] or
+                "Operation has expired" in result["message"])
 
     @pytest.mark.asyncio
     async def test_pre_approved_operation_executes(self, mock_passthrough):

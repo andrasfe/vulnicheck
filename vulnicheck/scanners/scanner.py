@@ -462,7 +462,7 @@ class DependencyScanner:
 
     async def _scan_python_imports(self, directory_path: str) -> set[str]:
         """Recursively scan Python files for import statements using FileProvider."""
-        imports = set()
+        imports: set[str] = set()
 
         # Find all Python files
         try:

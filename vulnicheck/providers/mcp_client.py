@@ -9,7 +9,7 @@ delegated to the client.
 import logging
 from typing import Any
 
-from ..mcp.mcp_client import MCPClient
+from ..mcp.mcp_client import MCPConnection
 from .base import FileNotFoundError as BaseFileNotFoundError
 from .base import (
     FileProvider,
@@ -48,7 +48,7 @@ class MCPClientFileProvider(FileProvider):
     def __init__(
         self,
         server_name: str,
-        client: MCPClient | None = None,
+        client: MCPConnection | None = None,
         timeout: int = 30
     ):
         """
@@ -64,13 +64,13 @@ class MCPClientFileProvider(FileProvider):
         self.timeout = timeout
         self._client_initialized = False
 
-    async def _ensure_client(self) -> MCPClient:
+    async def _ensure_client(self) -> MCPConnection:
         """Ensure MCP client is initialized."""
         if self.client is None:
             # In a real implementation, this would get the client from
             # a connection pool or factory
             raise UnsupportedOperationError(
-                "MCPClient must be provided during initialization"
+                "MCPConnection must be provided during initialization"
             )
         return self.client
 
@@ -95,10 +95,8 @@ class MCPClientFileProvider(FileProvider):
         try:
             client = await self._ensure_client()
             result = await client.call_tool(
-                server_name=self.server_name,
                 tool_name=tool_name,
-                parameters=parameters,
-                timeout=self.timeout
+                arguments=parameters
             )
 
             # Check for error in result

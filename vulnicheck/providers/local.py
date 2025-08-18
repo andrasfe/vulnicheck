@@ -107,7 +107,7 @@ class LocalFileProvider(FileProvider):
         # Read file asynchronously
         try:
             # Use asyncio.to_thread for truly async file I/O
-            def _read_file():
+            def _read_file() -> str:
                 with open(abs_path, encoding=encoding) as f:
                     return f.read()
 
@@ -138,7 +138,7 @@ class LocalFileProvider(FileProvider):
 
         # Read file asynchronously
         try:
-            def _read_file():
+            def _read_file() -> bytes:
                 with open(abs_path, 'rb') as f:
                     return f.read()
 
@@ -167,7 +167,7 @@ class LocalFileProvider(FileProvider):
         limit = max_files or self.MAX_DIRECTORY_FILES
 
         try:
-            def _list_directory():
+            def _list_directory() -> list[str]:
                 files = []
 
                 if recursive:
@@ -180,8 +180,8 @@ class LocalFileProvider(FileProvider):
                                 break
                     else:
                         # Use rglob for recursive listing
-                        for file_path in abs_path.rglob("*"):
-                            files.append(str(file_path.resolve()))
+                        for path_obj in abs_path.rglob("*"):
+                            files.append(str(path_obj.resolve()))
                             if len(files) >= limit:
                                 break
                 else:
@@ -260,7 +260,7 @@ class LocalFileProvider(FileProvider):
 
         # Calculate hash asynchronously
         try:
-            def _calculate_hash():
+            def _calculate_hash() -> str:
                 hasher = hashlib.new(algorithm)
                 with open(abs_path, 'rb') as f:
                     while chunk := f.read(chunk_size):
