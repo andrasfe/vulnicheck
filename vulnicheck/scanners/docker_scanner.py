@@ -5,11 +5,18 @@ This module analyzes Dockerfiles to extract Python package installations
 and checks them for known vulnerabilities.
 """
 
+import asyncio
 import logging
 import re
 from pathlib import Path
 from typing import Any
 
+from ..providers import (
+    FileNotFoundError,
+    FileProvider,
+    LocalFileProvider,
+    PermissionError,
+)
 from ..scanners.scanner import DependencyScanner
 
 logger = logging.getLogger(__name__)
@@ -18,13 +25,15 @@ logger = logging.getLogger(__name__)
 class DockerScanner:
     """Scans Dockerfiles for Python dependencies and checks for vulnerabilities."""
 
-    def __init__(self, scanner: DependencyScanner | None = None):
+    def __init__(self, scanner: DependencyScanner | None = None, file_provider: FileProvider | None = None):
         """Initialize Docker scanner.
 
         Args:
             scanner: Optional DependencyScanner instance to use for vulnerability checks
+            file_provider: Optional FileProvider instance for file operations (defaults to LocalFileProvider)
         """
         self.scanner = scanner  # Must be provided, no default initialization
+        self.file_provider = file_provider or LocalFileProvider()
 
         # Patterns to match different package installation methods
         self.patterns = {
@@ -59,6 +68,33 @@ class DockerScanner:
 
         Returns:
             Dictionary containing scan results with vulnerability information
+        """
+        # For sync compatibility, delegate to async version when possible
+        try:
+            # Check if we're already in a running event loop
+            try:
+                asyncio.get_running_loop()
+                # If we're in a running loop, we can't use run() or run_until_complete()
+                import warnings
+                warnings.warn(
+                    "scan_dockerfile called from async context, use scan_dockerfile_async instead",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+                # Fall back to synchronous implementation
+                return self._scan_dockerfile_sync(dockerfile_path, dockerfile_content)
+            except RuntimeError:
+                # No running event loop, safe to create a new one
+                return asyncio.run(self.scan_dockerfile_async(dockerfile_path, dockerfile_content))
+        except Exception:
+            # Fall back to sync implementation for any other issues
+            return self._scan_dockerfile_sync(dockerfile_path, dockerfile_content)
+
+    def _scan_dockerfile_sync(self, dockerfile_path: str | None = None, dockerfile_content: str | None = None) -> dict[str, Any]:
+        """Synchronous fallback implementation for scan_dockerfile.
+
+        This method provides the original synchronous behavior as a fallback
+        when async operations are not available.
         """
         if not dockerfile_path and not dockerfile_content:
             return {
@@ -291,7 +327,7 @@ class DockerScanner:
         return spec.strip(), None
 
     async def scan_dockerfile_async(self, dockerfile_path: str | None = None, dockerfile_content: str | None = None) -> dict[str, Any]:
-        """Async version of scan_dockerfile.
+        """Async version of scan_dockerfile using FileProvider.
 
         Args:
             dockerfile_path: Path to the Dockerfile
@@ -300,6 +336,101 @@ class DockerScanner:
         Returns:
             Dictionary containing scan results with vulnerability information
         """
-        # For now, just wrap the sync version
-        # TODO: Make the scanner operations truly async
-        return self.scan_dockerfile(dockerfile_path, dockerfile_content)
+        if not dockerfile_path and not dockerfile_content:
+            return {
+                "error": "Either dockerfile_path or dockerfile_content must be provided",
+                "packages_found": 0,
+                "vulnerabilities": []
+            }
+
+        # Read Dockerfile content if path is provided
+        if dockerfile_path and not dockerfile_content:
+            try:
+                if not await self.file_provider.file_exists(dockerfile_path):
+                    return {
+                        "error": f"Dockerfile not found: {dockerfile_path}",
+                        "packages_found": 0,
+                        "vulnerabilities": []
+                    }
+                dockerfile_content = await self.file_provider.read_file(dockerfile_path)
+            except FileNotFoundError:
+                return {
+                    "error": f"Dockerfile not found: {dockerfile_path}",
+                    "packages_found": 0,
+                    "vulnerabilities": []
+                }
+            except PermissionError:
+                return {
+                    "error": f"Permission denied reading Dockerfile: {dockerfile_path}",
+                    "packages_found": 0,
+                    "vulnerabilities": []
+                }
+            except Exception as e:
+                return {
+                    "error": f"Error reading Dockerfile: {str(e)}",
+                    "packages_found": 0,
+                    "vulnerabilities": []
+                }
+
+        # Extract dependencies
+        assert dockerfile_content is not None  # We've already validated this
+        dependencies = self._extract_dependencies(dockerfile_content)
+
+        # Check for referenced files
+        referenced_files = self._extract_referenced_files(dockerfile_content)
+
+        # Scan dependencies for vulnerabilities
+        results: dict[str, Any] = {
+            "packages_found": len(dependencies),
+            "dependencies": dependencies,
+            "referenced_files": referenced_files,
+            "vulnerabilities": [],
+            "vulnerable_packages": set(),
+            "total_vulnerabilities": 0,
+            "severity_summary": {
+                "CRITICAL": 0,
+                "HIGH": 0,
+                "MODERATE": 0,
+                "LOW": 0,
+                "UNKNOWN": 0
+            }
+        }
+
+        # Check each dependency
+        for package, version in dependencies.items():
+            if self.scanner is None:
+                continue
+            vulns = self.scanner.check_package(package, version)
+            if vulns:
+                vulnerable_packages = results["vulnerable_packages"]
+                assert isinstance(vulnerable_packages, set)
+                vulnerable_packages.add(package)
+                for vuln in vulns:
+                    vuln_info = {
+                        "package": package,
+                        "installed_version": version or "latest",
+                        "vulnerability": vuln
+                    }
+                    vulnerabilities = results["vulnerabilities"]
+                    assert isinstance(vulnerabilities, list)
+                    vulnerabilities.append(vuln_info)
+
+                    # Update severity counts
+                    severity = vuln.get("severity", "UNKNOWN")
+                    severity_summary = results["severity_summary"]
+                    assert isinstance(severity_summary, dict)
+                    severity_summary[severity] = severity_summary.get(severity, 0) + 1
+                    total_vulns = results["total_vulnerabilities"]
+                    assert isinstance(total_vulns, int)
+                    results["total_vulnerabilities"] = total_vulns + 1
+
+        # Convert set to list for JSON serialization
+        vulnerable_packages_set = results["vulnerable_packages"]
+        assert isinstance(vulnerable_packages_set, set)
+        results["vulnerable_packages"] = list(vulnerable_packages_set)
+
+        # Add scan metadata
+        results["scan_type"] = "dockerfile"
+        results["scanner_version"] = "0.1.0"
+
+        return results

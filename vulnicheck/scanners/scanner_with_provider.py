@@ -1,33 +1,60 @@
+"""
+Updated dependency scanner using FileProvider interface.
+
+This demonstrates how the existing DependencyScanner can be modified to use
+the FileProvider interface for file operations, enabling HTTP-only deployment.
+"""
+
 import ast
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
 import toml
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 
-from ..providers.base import FileNotFoundError as ProviderFileNotFoundError
-from ..providers.base import FileProvider, FileProviderError
-from ..providers.factory import get_default_provider
+from ..providers import FileNotFoundError as ProviderFileNotFoundError
+from ..providers import FileProvider, FileProviderError
 
 logger = logging.getLogger(__name__)
 
 
-class DependencyScanner:
+class DependencyScannerWithProvider:
+    """
+    Dependency scanner with FileProvider interface support.
+
+    This version of DependencyScanner uses the FileProvider interface
+    for all file operations, enabling both local and MCP client-delegated
+    file access depending on deployment context.
+    """
+
     def __init__(
-        self, osv_client: Any, nvd_client: Any, github_client: Any = None,
-        circl_client: Any = None, safety_db_client: Any = None,
-        file_provider: FileProvider | None = None
+        self,
+        file_provider: FileProvider,
+        osv_client: Any,
+        nvd_client: Any,
+        github_client: Any = None,
+        circl_client: Any = None,
+        safety_db_client: Any = None
     ) -> None:
+        """
+        Initialize dependency scanner with file provider.
+
+        Args:
+            file_provider: FileProvider instance for file operations
+            osv_client: OSV vulnerability client
+            nvd_client: NVD vulnerability client
+            github_client: Optional GitHub Advisory client
+            circl_client: Optional CIRCL client
+            safety_db_client: Optional Safety DB client
+        """
+        self.file_provider = file_provider
         self.osv_client = osv_client
         self.nvd_client = nvd_client
         self.github_client = github_client
         self.circl_client = circl_client
         self.safety_db_client = safety_db_client
-        # Use provided FileProvider or default to LocalFileProvider for backward compatibility
-        self.file_provider = file_provider or get_default_provider()
 
     async def scan_file(self, file_path: str) -> dict[str, list[Any]]:
         """Scan a dependency file for vulnerabilities."""
@@ -40,17 +67,12 @@ class DependencyScanner:
             raise FileNotFoundError(f"File not found: {file_path}")
 
         # Check file size
-        try:
-            file_stats = await self.file_provider.get_file_stats(file_path)
-            if file_stats.size > 10 * 1024 * 1024:  # 10MB limit
-                raise ValueError(f"File too large (max 10MB): {file_path}")
-        except ProviderFileNotFoundError:
-            raise FileNotFoundError(f"File not found: {file_path}") from None
-        except FileProviderError as e:
-            raise ValueError(f"Cannot access file {file_path}: {e}") from e
+        file_stats = await self.file_provider.get_file_stats(file_path)
+        if file_stats.size > 10 * 1024 * 1024:  # 10MB limit
+            raise ValueError(f"File too large (max 10MB): {file_path}")
 
         # Parse dependencies based on file type
-        file_name = Path(file_path).name  # Extract just the filename
+        file_name = file_path.split('/')[-1]  # Simple basename extraction
 
         if file_name == "requirements.txt":
             dependencies = await self._parse_requirements(file_path)
@@ -161,7 +183,7 @@ class DependencyScanner:
         except FileProviderError as e:
             raise ValueError(f"Failed to read lock file: {e}") from e
 
-        file_name = Path(file_path).name  # Extract just the filename
+        file_name = file_path.split('/')[-1]  # Simple basename extraction
 
         # Handle uv.lock TOML format
         if file_name == "uv.lock":
@@ -198,7 +220,12 @@ class DependencyScanner:
 
         try:
             content = await self.file_provider.read_file(file_path, encoding="utf-8")
+        except ProviderFileNotFoundError as e:
+            raise FileNotFoundError(str(e)) from e
+        except FileProviderError as e:
+            raise ValueError(f"Failed to read setup.py: {e}") from e
 
+        try:
             # Parse the setup.py file as an AST
             tree = ast.parse(content, filename=file_path)
 
@@ -213,10 +240,6 @@ class DependencyScanner:
                         if keyword.arg == "install_requires":
                             deps.extend(self._extract_install_requires(keyword.value))
 
-        except ProviderFileNotFoundError as e:
-            raise FileNotFoundError(str(e)) from e
-        except FileProviderError as e:
-            raise ValueError(f"Failed to read setup.py: {e}") from e
         except (SyntaxError, UnicodeDecodeError, Exception) as e:
             logger.debug(f"Failed to parse setup.py file {file_path}: {e}")
             # Fallback: try regex parsing
@@ -273,7 +296,7 @@ class DependencyScanner:
         return deps
 
     async def _find_lock_versions(self, file_path: str) -> dict[str, str]:
-        """Find and parse lock files to get actual installed versions using FileProvider."""
+        """Find and parse lock files to get actual installed versions."""
         lock_versions = {}
 
         # Extract directory path
@@ -304,134 +327,6 @@ class DependencyScanner:
 
         return lock_versions
 
-    async def _check_exact_version(self, name: str, version: str) -> list[Any]:
-        """Check if a specific version of a package has vulnerabilities."""
-        vulns = await self.osv_client.check_package(name, version)
-
-        # Also check GitHub Advisory Database if available
-        if self.github_client:
-            try:
-                github_advisories = await self.github_client.search_advisories_async(
-                    name, version
-                )
-                vulns.extend(github_advisories)
-            except Exception:
-                # Silently ignore GitHub API errors
-                pass
-
-        return list(vulns)
-
-    def _parse_requirement(self, line: str) -> tuple[str, str]:
-        """Parse a single requirement line."""
-        try:
-            req = Requirement(line)
-            return req.name, str(req.specifier) if req.specifier else ""
-        except Exception as e:
-            # Log the error for debugging
-            logger.debug(f"Failed to parse requirement '{line}': {e}")
-            # Fallback: simple regex parsing
-            match = re.match(r"^([a-zA-Z0-9._-]+)(.*)", line)
-            if match:
-                return match.group(1), match.group(2).strip()
-            return line, ""
-
-    def check_package(self, name: str, version_spec: str | None = None) -> list[Any]:
-        """Check if a package has vulnerabilities (synchronous wrapper)."""
-        import asyncio
-
-        # Get or create event loop
-        try:
-            asyncio.get_running_loop()
-            # We're already in an async context, can't use run
-            return []
-        except RuntimeError:
-            # No running loop, create one
-            return asyncio.run(self._check_package(name, version_spec or ""))
-
-    async def _check_package(self, name: str, version_spec: str) -> list[Any]:
-        """Check if a package has vulnerabilities."""
-        vulns = await self.osv_client.check_package(name)
-
-        # Also check GitHub Advisory Database if available
-        if self.github_client:
-            try:
-                github_advisories = await self.github_client.search_advisories_async(
-                    name
-                )
-                vulns.extend(github_advisories)
-            except Exception:
-                # Silently ignore GitHub API errors
-                pass
-
-        # Check CIRCL Vulnerability-Lookup if available
-        if self.circl_client:
-            try:
-                circl_vulns = await self.circl_client.check_package(name)
-                vulns.extend(circl_vulns)
-            except Exception:
-                # Silently ignore CIRCL API errors
-                pass
-
-        # Check Safety DB if available
-        if self.safety_db_client:
-            try:
-                safety_vulns = await self.safety_db_client.check_package(name)
-                vulns.extend(safety_vulns)
-            except Exception:
-                # Silently ignore Safety DB errors
-                pass
-
-        if not version_spec or not vulns:
-            return list(vulns)
-
-        # Filter by version if specified
-        try:
-            spec = SpecifierSet(version_spec)
-            filtered = []
-
-            for vuln in vulns:
-                # Check if any affected version matches our spec
-                affected_versions = self._get_affected_versions(vuln, name)
-                if any(v in spec for v in affected_versions):
-                    filtered.append(vuln)
-
-            return filtered
-        except Exception:
-            # If parsing fails, return all vulnerabilities
-            return list(vulns)
-
-    def _get_affected_versions(self, vuln: Any, package_name: str) -> list[str]:
-        """Extract affected versions for a package."""
-        versions = []
-
-        for affected in vuln.affected:
-            pkg = affected.get("package", {})
-            if pkg.get("name", "").lower() == package_name.lower():
-                versions.extend(affected.get("versions", []))
-
-        return versions
-
-    async def calculate_file_hash(self, file_path: str) -> str:
-        """Calculate MD5 hash of a file using FileProvider."""
-        return await self.file_provider.calculate_file_hash(file_path, algorithm="md5")
-
-    async def scan_installed(self) -> dict[str, list[Any]]:
-        """Scan installed Python packages for vulnerabilities."""
-        try:
-            import importlib.metadata as metadata
-        except ImportError:
-            import importlib_metadata as metadata  # type: ignore
-
-        results = {}
-        for dist in metadata.distributions():
-            name = dist.name
-            version = dist.version
-            if name and version:
-                vulns = await self._check_exact_version(name, version)
-                if vulns:
-                    results[f"{name}=={version}"] = vulns
-        return results
-
     async def scan_directory(self, directory_path: str) -> dict[str, list[Any]]:
         """Scan a directory for Python imports when no requirements file exists."""
 
@@ -439,7 +334,7 @@ class DependencyScanner:
         potential_files = ["requirements.txt", "pyproject.toml", "setup.py"]
 
         for file_name in potential_files:
-            file_path = f"{directory_path.rstrip('/')}/{file_name}"
+            file_path = f"{directory_path}/{file_name}"
             if await self.file_provider.file_exists(file_path):
                 return await self.scan_file(file_path)
 
@@ -518,6 +413,144 @@ class DependencyScanner:
 
         return imports
 
+    async def calculate_file_hash(self, file_path: str) -> str:
+        """Calculate MD5 hash of a file using FileProvider."""
+        return await self.file_provider.calculate_file_hash(file_path, algorithm="md5")
+
+    # Keep existing vulnerability checking methods unchanged
+    async def _check_exact_version(self, name: str, version: str) -> list[Any]:
+        """Check if a specific version of a package has vulnerabilities."""
+        vulns = await self.osv_client.check_package(name, version)
+
+        # Also check GitHub Advisory Database if available
+        if self.github_client:
+            try:
+                github_advisories = await self.github_client.search_advisories_async(
+                    name, version
+                )
+                vulns.extend(github_advisories)
+            except Exception:
+                # Silently ignore GitHub API errors
+                pass
+
+        return list(vulns)
+
+    def _parse_requirement(self, line: str) -> tuple[str, str]:
+        """Parse a single requirement line."""
+        try:
+            req = Requirement(line)
+            return req.name, str(req.specifier) if req.specifier else ""
+        except Exception as e:
+            # Log the error for debugging
+            logger.debug(f"Failed to parse requirement '{line}': {e}")
+            # Fallback: simple regex parsing
+            match = re.match(r"^([a-zA-Z0-9._-]+)(.*)", line)
+            if match:
+                return match.group(1), match.group(2).strip()
+            return line, ""
+
+    async def _check_package(self, name: str, version_spec: str) -> list[Any]:
+        """Check if a package has vulnerabilities."""
+        vulns = await self.osv_client.check_package(name)
+
+        # Also check GitHub Advisory Database if available
+        if self.github_client:
+            try:
+                github_advisories = await self.github_client.search_advisories_async(
+                    name
+                )
+                vulns.extend(github_advisories)
+            except Exception:
+                # Silently ignore GitHub API errors
+                pass
+
+        # Check CIRCL Vulnerability-Lookup if available
+        if self.circl_client:
+            try:
+                circl_vulns = await self.circl_client.check_package(name)
+                vulns.extend(circl_vulns)
+            except Exception:
+                # Silently ignore CIRCL API errors
+                pass
+
+        # Check Safety DB if available
+        if self.safety_db_client:
+            try:
+                safety_vulns = await self.safety_db_client.check_package(name)
+                vulns.extend(safety_vulns)
+            except Exception:
+                # Silently ignore Safety DB errors
+                pass
+
+        if not version_spec or not vulns:
+            return list(vulns)
+
+        # Filter by version if specified
+        try:
+            spec = SpecifierSet(version_spec)
+            filtered = []
+
+            for vuln in vulns:
+                # Check if any affected version matches our spec
+                affected_versions = self._get_affected_versions(vuln, name)
+                if any(v in spec for v in affected_versions):
+                    filtered.append(vuln)
+
+            return filtered
+        except Exception:
+            # If parsing fails, return all vulnerabilities
+            return list(vulns)
+
+    def _get_affected_versions(self, vuln: Any, package_name: str) -> list[str]:
+        """Extract affected versions for a package."""
+        versions = []
+
+        for affected in vuln.affected:
+            pkg = affected.get("package", {})
+            if pkg.get("name", "").lower() == package_name.lower():
+                versions.extend(affected.get("versions", []))
+
+        return versions
+
+    async def _check_latest_version(self, name: str) -> list[Any]:
+        """Check if the latest version of a package has vulnerabilities."""
+        # Query for all vulnerabilities of this package
+        vulns = await self.osv_client.check_package(name)
+
+        # Also check GitHub Advisory Database if available
+        if self.github_client:
+            try:
+                github_advisories = await self.github_client.search_advisories_async(
+                    name
+                )
+                vulns.extend(github_advisories)
+            except Exception:
+                # Silently ignore GitHub API errors
+                pass
+
+        # Check CIRCL Vulnerability-Lookup if available
+        if self.circl_client:
+            try:
+                circl_vulns = await self.circl_client.check_package(name)
+                vulns.extend(circl_vulns)
+            except Exception:
+                # Silently ignore CIRCL API errors
+                pass
+
+        # Check Safety DB if available
+        if self.safety_db_client:
+            try:
+                safety_vulns = await self.safety_db_client.check_package(name)
+                vulns.extend(safety_vulns)
+            except Exception:
+                # Silently ignore Safety DB errors
+                pass
+
+        # Filter to only include vulnerabilities affecting the latest version
+        # Since we don't know the exact latest version, we return all vulns
+        # and indicate they apply to "latest" version
+        return list(vulns)
+
     def _is_stdlib_module(self, module_name: str) -> bool:
         """Check if a module is part of Python's standard library."""
         # Common stdlib modules - not exhaustive but covers most cases
@@ -573,41 +606,25 @@ class DependencyScanner:
         }
         return module_name in stdlib_modules
 
-    async def _check_latest_version(self, name: str) -> list[Any]:
-        """Check if the latest version of a package has vulnerabilities."""
-        # Query for all vulnerabilities of this package
-        vulns = await self.osv_client.check_package(name)
+    async def scan_installed(self) -> dict[str, list[Any]]:
+        """
+        Scan installed Python packages for vulnerabilities.
 
-        # Also check GitHub Advisory Database if available
-        if self.github_client:
-            try:
-                github_advisories = await self.github_client.search_advisories_async(
-                    name
-                )
-                vulns.extend(github_advisories)
-            except Exception:
-                # Silently ignore GitHub API errors
-                pass
+        Note: This method cannot be delegated to MCP clients as it requires
+        access to the local Python environment. It will only work with
+        LocalFileProvider deployments.
+        """
+        try:
+            import importlib.metadata as metadata
+        except ImportError:
+            import importlib_metadata as metadata  # type: ignore
 
-        # Check CIRCL Vulnerability-Lookup if available
-        if self.circl_client:
-            try:
-                circl_vulns = await self.circl_client.check_package(name)
-                vulns.extend(circl_vulns)
-            except Exception:
-                # Silently ignore CIRCL API errors
-                pass
-
-        # Check Safety DB if available
-        if self.safety_db_client:
-            try:
-                safety_vulns = await self.safety_db_client.check_package(name)
-                vulns.extend(safety_vulns)
-            except Exception:
-                # Silently ignore Safety DB errors
-                pass
-
-        # Filter to only include vulnerabilities affecting the latest version
-        # Since we don't know the exact latest version, we return all vulns
-        # and indicate they apply to "latest" version
-        return list(vulns)
+        results = {}
+        for dist in metadata.distributions():
+            name = dist.name
+            version = dist.version
+            if name and version:
+                vulns = await self._check_exact_version(name, version)
+                if vulns:
+                    results[f"{name}=={version}"] = vulns
+        return results

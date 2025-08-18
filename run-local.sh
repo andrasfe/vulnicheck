@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # VulniCheck Setup Script
-# Installs dependencies and configures Claude
+# Installs dependencies and configures Claude/Cursor for HTTP transport
 
 set -e
 
@@ -120,15 +120,12 @@ main() {
     cp "$CLAUDE_CONFIG" "$CLAUDE_CONFIG.backup.$(date +%s)"
     info "Backed up configuration"
 
-    # Add vulnicheck to config
-    info "Adding VulniCheck to Claude configuration..."
+    # Add vulnicheck to config (HTTP transport)
+    info "Adding VulniCheck to Claude configuration (HTTP transport)..."
     jq '.mcpServers.vulnicheck = {
-        "type": "stdio",
-        "command": "'"$PYTHON_PATH"'",
-        "args": ["-m", "vulnicheck.server"],
-        "env": {
-            "PYTHONPATH": "'"$(pwd)"'"
-        }
+        "type": "http",
+        "url": "http://localhost:3000",
+        "description": "VulniCheck HTTP server - start with: '"$PYTHON_PATH"' -m vulnicheck.server"
     }' "$CLAUDE_CONFIG" > "$CLAUDE_CONFIG.tmp" && mv "$CLAUDE_CONFIG.tmp" "$CLAUDE_CONFIG"
 
     success "VulniCheck added to Claude configuration"
@@ -149,18 +146,11 @@ main() {
             cp "$CURSOR_CONFIG" "$CURSOR_CONFIG.backup.$(date +%s)"
             info "Backed up Cursor configuration"
 
-            # Add vulnicheck to config
-            info "Adding VulniCheck to Cursor configuration..."
-            # Check if Cursor is using URL-based config
-            if jq -e '.mcpServers.vulnicheck.url' "$CURSOR_CONFIG" >/dev/null 2>&1; then
-                info "Cursor is using URL-based MCP config, updating to command-based..."
-            fi
+            # Add vulnicheck to config (HTTP transport)
+            info "Adding VulniCheck to Cursor configuration (HTTP transport)..."
             jq '.mcpServers.vulnicheck = {
-                "command": "'"$PYTHON_PATH"'",
-                "args": ["-m", "vulnicheck.server"],
-                "env": {
-                    "PYTHONPATH": "'"$(pwd)"'"
-                }
+                "url": "http://localhost:3000",
+                "description": "VulniCheck HTTP server - start with: '"$PYTHON_PATH"' -m vulnicheck.server"
             }' "$CURSOR_CONFIG" > "$CURSOR_CONFIG.tmp" && mv "$CURSOR_CONFIG.tmp" "$CURSOR_CONFIG"
 
             success "VulniCheck added to Cursor configuration"
@@ -180,16 +170,23 @@ main() {
     fi
 
     info "Available tools:"
-    echo "  - check_package_vulnerabilities"
-    echo "  - scan_dependencies"
-    echo "  - scan_installed_packages"
-    echo "  - get_cve_details"
-    echo "  - scan_for_secrets"
-    echo "  - validate_mcp_security"
-    echo "  - mcp_passthrough_tool"
-    echo "  - approve_mcp_operation"
-    echo "  - deny_mcp_operation"
-    echo "  - list_mcp_servers"
+    echo "  - check_package_vulnerabilities     # Check specific Python package vulnerabilities"
+    echo "  - scan_dependencies                 # Scan dependency files (requirements.txt, pyproject.toml, setup.py)"
+    echo "  - scan_installed_packages           # Scan currently installed Python packages"
+    echo "  - get_cve_details                   # Get detailed CVE information"
+    echo "  - scan_for_secrets                  # Scan files for exposed credentials"
+    echo "  - validate_mcp_security             # Validate MCP server security configuration"
+    echo "  - mcp_passthrough_tool              # Secure MCP tool proxying with risk assessment"
+    echo "  - approve_mcp_operation             # Approve pending MCP operations (interactive mode)"
+    echo "  - deny_mcp_operation                # Deny pending MCP operations (interactive mode)"
+    echo "  - list_mcp_servers                  # List available MCP servers"
+    echo "  - scan_dockerfile                   # Analyze Dockerfiles for Python vulnerabilities"
+    echo "  - assess_operation_safety           # Pre-operation risk assessment for LLMs"
+    echo "  - comprehensive_security_check      # Interactive AI-powered security assessment"
+    echo "  - get_mcp_conversations             # Retrieve and search past MCP interactions"
+    echo "  - scan_github_repo                  # Comprehensive GitHub repository security analysis"
+    echo "  - manage_trust_store                # Manage MCP server trust store"
+    echo "  - install_vulnicheck_guide          # Installation guide for Claude Code users"
 
     # Show current MCP servers
     echo ""
@@ -208,19 +205,28 @@ main() {
     success "VulniCheck is installed and configured"
     echo ""
 
+    # Show startup instructions
+    echo "IMPORTANT: Start the VulniCheck HTTP server first:"
+    echo "  .venv/bin/python -m vulnicheck.server"
+    echo ""
     # Show restart instructions based on what was configured
     if [ -f "$CURSOR_CONFIG" ] && grep -q '"vulnicheck"' "$CURSOR_CONFIG" 2>/dev/null; then
-        echo "Please restart Claude Code and Cursor to use VulniCheck"
+        echo "Then restart Claude Code and Cursor to use VulniCheck"
     else
-        echo "Please restart Claude Code to use VulniCheck"
+        echo "Then restart Claude Code to use VulniCheck"
     fi
     echo ""
     echo "Optional environment variables:"
-    echo "  export NVD_API_KEY=your-key     # For higher NVD rate limits"
-    echo "  export GITHUB_TOKEN=your-token  # For GitHub Advisory access"
+    echo "  export NVD_API_KEY=your-key          # For higher NVD rate limits (5→50 req/30s)"
+    echo "  export GITHUB_TOKEN=your-token       # For GitHub Advisory access (5000 req/hour)"
+    echo "  export OPENAI_API_KEY=your-key       # For LLM-based risk assessment"
+    echo "  export ANTHROPIC_API_KEY=your-key    # Alternative to OpenAI for risk assessment"
+    echo "  export MCP_PORT=3000                 # Change HTTP server port (default: 3000)"
+    echo "  export VULNICHECK_DEBUG=true         # Enable debug logging"
     echo ""
-    echo "To run the server manually:"
+    echo "To run the HTTP server manually:"
     echo "  .venv/bin/python -m vulnicheck.server"
+    echo "  Server will be available at http://localhost:3000"
 }
 
 # Run main

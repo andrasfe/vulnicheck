@@ -1,6 +1,6 @@
 # VulniCheck - AI-Powered Security Scanner
 
-VulniCheck provides comprehensive security analysis for Python projects and GitHub repositories using AI-powered vulnerability detection.
+VulniCheck provides comprehensive security analysis for Python projects and GitHub repositories using AI-powered vulnerability detection. It runs as a Docker-based HTTP MCP server, providing secure containerized deployment with comprehensive vulnerability scanning capabilities.
 
 ## Quick Start
 
@@ -35,18 +35,21 @@ VulniCheck will:
 
 ## Key Features
 
+- **Docker Deployment**: Secure containerized deployment with HTTP streaming
+- **Production Ready**: Scalable HTTP server architecture
 - **Comprehensive Coverage**: Queries 5+ vulnerability databases (OSV.dev, NVD, GitHub Advisory, CIRCL, Safety DB)
 - **GitHub Integration**: Scan any public/private GitHub repository directly
 - **AI-Powered Analysis**: Uses OpenAI/Anthropic APIs for intelligent security assessment
 - **Secrets Detection**: Finds exposed API keys, passwords, and credentials
 - **Docker Security**: Analyzes Dockerfiles for vulnerable dependencies
 - **Smart Caching**: Avoids redundant scans with commit-level caching
+- **Flexible Deployment**: Local development and HTTP-only production scenarios
 - **Zero Config**: Works out of the box, enhanced with optional API keys
 
 ## Requirements
 
-- Python 3.10+
-- Claude Code or compatible MCP client
+- Docker
+- Claude Code or compatible MCP client with HTTP transport support
 
 ## Supported File Types
 
@@ -55,12 +58,31 @@ VulniCheck will:
 - **Secrets**: All text-based files (excludes binary files, git history)
 - **GitHub**: Any public or private repository URL
 
+## Deployment
+
+### Docker Setup (Recommended)
+```bash
+# Clone and build
+git clone -b docker-deployment https://github.com/andrasfe/vulnicheck.git
+cd vulnicheck
+docker build -t vulnicheck .
+
+# Run with optional API keys
+docker run -d --name vulnicheck -p 3000:3000 \
+  -e OPENAI_API_KEY=your-key \
+  -e ANTHROPIC_API_KEY=your-key \
+  vulnicheck
+```
+
+The server will be available at http://localhost:3000/mcp
+
 ## Support
 
-- **Documentation**: See [DETAILS.md](DETAILS.md) for complete documentation
+- **Installation Guide**: See [CLAUDE_INSTALL.md](CLAUDE_INSTALL.md) for setup instructions
+- **Project Documentation**: See [CLAUDE.md](CLAUDE.md) for development details
 - **Issues**: Report problems at https://github.com/andrasfe/vulnicheck/issues
-- **Development**: Contributions welcome! See DETAILS.md for development setup
+- **Development**: Contributions welcome! See CLAUDE.md for development setup
 
 ---
 
-**DISCLAIMER**: Vulnerability data provided "AS IS" without warranty. Users responsible for verification. See DETAILS.md for full disclaimer.
+**DISCLAIMER**: Vulnerability data provided "AS IS" without warranty. Users responsible for verification.

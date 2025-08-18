@@ -50,7 +50,7 @@ class MCPApprovalIntegration:
         self.pending_approvals[request.request_id] = request
 
         # Format the risk assessment details
-        risk_info = request.risk_assessment
+        risk_info = request.risk_assessment or {}
         risk_level = risk_info.get("risk_level", "UNKNOWN")
 
         # Create a detailed prompt for the MCP client
@@ -139,7 +139,7 @@ class MCPApprovalIntegration:
                 "server_name": request.server_name,
                 "tool_name": request.tool_name,
                 "risk_level": risk_level,
-                "timeout_seconds": request.timeout_seconds,
+                "expires_at": request.expires_at.isoformat(),
             },
         }
 
@@ -202,8 +202,9 @@ async def mcp_approval_callback(request: "ApprovalRequest") -> "ApprovalResponse
     )
 
     # Safely access risk_assessment fields
-    risk_level = request.risk_assessment.get("risk_level", "UNKNOWN")
-    risk_description = request.risk_assessment.get("description", "No description available")
+    risk_assessment = request.risk_assessment or {}
+    risk_level = risk_assessment.get("risk_level", "UNKNOWN")
+    risk_description = risk_assessment.get("description", "No description available")
 
     logger.info(f"Risk level: {risk_level}")
     logger.info(f"Risk description: {risk_description}")
