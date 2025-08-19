@@ -19,7 +19,7 @@ from .mcp import (
     mcp_passthrough_interactive,
     unified_mcp_passthrough,
 )
-from .providers.base import UnsupportedOperationError
+from .providers.base import FileProvider, UnsupportedOperationError
 from .providers.factory import (
     get_provider_manager,
 )
@@ -59,7 +59,7 @@ github_scanner = None
 
 # File providers and deployment mode
 file_provider_manager = None
-client_file_provider = None  # For client-delegated operations
+global_client_file_provider = None  # For client-delegated operations
 local_file_provider = None  # For server-side operations
 scanner_with_provider = None  # FileProvider-based scanner
 
@@ -103,7 +103,7 @@ def _ensure_clients_initialized() -> None:
         docker_scanner, \
         github_scanner, \
         file_provider_manager, \
-        client_file_provider, \
+        global_client_file_provider, \
         local_file_provider, \
         scanner_with_provider
 
@@ -124,6 +124,9 @@ def _ensure_clients_initialized() -> None:
 
         # Initialize file providers
         local_file_provider = file_provider_manager.get_local_provider()
+
+        # Use local variable for assignment, then assign to global
+        client_file_provider: FileProvider
 
         # Determine if we need MCP client provider
         deployment_mode = _detect_deployment_mode()
@@ -149,6 +152,9 @@ def _ensure_clients_initialized() -> None:
         else:
             # Use local provider for both client and local operations in local mode
             client_file_provider = local_file_provider
+
+        # Store in global variable
+        global_client_file_provider = client_file_provider
 
         # Initialize FileProvider-based scanners for client operations
         scanner_with_provider = DependencyScannerWithProvider(

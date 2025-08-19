@@ -119,7 +119,7 @@ async def mcp_passthrough_tool_with_approval(
 
     # Get or create passthrough with approval callback
     passthrough = MCPPassthroughWithApproval(
-        agent_name=agent_name, approval_callback=mcp_approval_callback
+        agent_name=agent_name, approval_callback=mcp_approval_callback  # type: ignore[arg-type]
     )
 
     # Execute with enhanced security

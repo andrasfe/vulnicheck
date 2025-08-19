@@ -272,8 +272,8 @@ def _initialize_callback() -> None:
     from .mcp_passthrough_with_approval import ApprovalRequest as _ApprovalRequest
     from .mcp_passthrough_with_approval import ApprovalResponse as _ApprovalResponse
 
-    ApprovalRequest = _ApprovalRequest  # type: ignore[misc]
-    ApprovalResponse = _ApprovalResponse  # type: ignore[misc]
+    ApprovalRequest = _ApprovalRequest
+    ApprovalResponse = _ApprovalResponse
 
     # Set the approval callback
     from . import mcp_passthrough_with_approval as passthrough_module

@@ -134,12 +134,12 @@ class MCPClientFileProvider(FileProvider):
         # Validate path before sending to client
         validated_path = self._validate_path(file_path)
 
-        parameters = {
+        parameters: dict[str, Any] = {
             "file_path": validated_path,
             "encoding": encoding,
         }
         if max_size is not None:
-            parameters["max_size"] = max_size
+            parameters["max_size"] = str(max_size)  # Convert to string for JSON serialization
 
         result = await self._call_tool("read_file", parameters)
 
@@ -162,11 +162,11 @@ class MCPClientFileProvider(FileProvider):
         # Validate path before sending to client
         validated_path = self._validate_path(file_path)
 
-        parameters = {
+        parameters: dict[str, Any] = {
             "file_path": validated_path,
         }
         if max_size is not None:
-            parameters["max_size"] = max_size
+            parameters["max_size"] = str(max_size)  # Convert to string for JSON serialization
 
         result = await self._call_tool("read_file_binary", parameters)
 

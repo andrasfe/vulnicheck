@@ -56,10 +56,10 @@ class ConversationStorage:
 
         self.storage_dir = base_path / ".vulnicheck" / "conversations"
         self._storage_enabled = True
-        
+
         # Always set the index_file path, even if storage is disabled
         self.index_file = self.storage_dir / "index.json"
-        
+
         try:
             self.storage_dir.mkdir(parents=True, exist_ok=True)
             self._ensure_index()
@@ -159,7 +159,7 @@ class ConversationStorage:
                 tool=tool,
                 parameters=parameters
             )
-            
+
         conversation = self.get_conversation(conversation_id)
         if not conversation:
             # Auto-create conversation if it doesn't exist
@@ -217,7 +217,7 @@ class ConversationStorage:
                 error=error,
                 risk_assessment=risk_assessment
             )
-            
+
         conversation = self.get_conversation(conversation_id)
         if not conversation:
             raise ValueError(f"Conversation {conversation_id} not found")

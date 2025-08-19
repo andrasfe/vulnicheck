@@ -9,7 +9,7 @@ import asyncio
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..providers import (
     FileNotFoundError,
@@ -17,7 +17,10 @@ from ..providers import (
     LocalFileProvider,
     PermissionError,
 )
-from ..scanners.scanner import DependencyScanner
+
+if TYPE_CHECKING:
+    from ..scanners.scanner import DependencyScanner
+    from ..scanners.scanner_with_provider import DependencyScannerWithProvider
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +28,7 @@ logger = logging.getLogger(__name__)
 class DockerScanner:
     """Scans Dockerfiles for Python dependencies and checks for vulnerabilities."""
 
-    def __init__(self, scanner: DependencyScanner | None = None, file_provider: FileProvider | None = None):
+    def __init__(self, scanner: "DependencyScanner | DependencyScannerWithProvider | None" = None, file_provider: FileProvider | None = None):
         """Initialize Docker scanner.
 
         Args:

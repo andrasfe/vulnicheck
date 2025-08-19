@@ -467,7 +467,7 @@ class TestErrorHandling:
     async def test_invalid_approval_mode(self):
         """Test handling of invalid approval mode."""
         with pytest.raises(ValueError):
-            UnifiedPassthrough(approval_mode="invalid")  # type: ignore
+            UnifiedPassthrough(approval_mode="invalid")
 
     @pytest.mark.asyncio
     async def test_timeout_handling(self):

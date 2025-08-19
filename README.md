@@ -4,25 +4,42 @@ VulniCheck provides comprehensive security analysis for Python projects and GitH
 
 ## Quick Start
 
-### Installation for Claude Code
+### 1. Pull and Run the Docker Container
 
-[!CAUTION]
-**MCP servers can execute code on your system. Only install MCP servers from trusted sources after reviewing their code and understanding the permissions they require.**
+```bash
+# Pull the latest image from Docker Hub
+docker pull andrasfe/vulnicheck:latest
 
-The simplest way to get started is to ask claude:
-Hey Claude, follow instructions at https://raw.githubusercontent.com/andrasfe/vulnicheck/refs/heads/main/CLAUDE_INSTALL.md to install this MCP server.
+# Run with OpenAI API key (for enhanced AI-powered risk assessment)
+docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  -e OPENAI_API_KEY=your-openai-api-key \
+  andrasfe/vulnicheck:latest
 
+# Or run without API key (basic vulnerability scanning)
+docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  andrasfe/vulnicheck:latest
+```
+
+### 2. Add to Claude Code
+
+```bash
+claude mcp add --transport http vulnicheck http://localhost:3000/mcp
+```
+
+That's it! VulniCheck is now available in Claude Code.
 
 ## Usage
 
-Once installed, simply ask Claude Code:
+Once installed, simply ask Claude:
 
 ```
 "Run a comprehensive security check on my project"
 
-"Run a comprehensive security check on https://github.com/owner/repo"
+"Scan https://github.com/owner/repo for vulnerabilities"
 
-"Check this directory for security vulnerabilities"
+"Check my dependencies for security issues"
+
+"Scan my Dockerfile for vulnerable packages"
 ```
 
 VulniCheck will:
@@ -43,46 +60,75 @@ VulniCheck will:
 - **Secrets Detection**: Finds exposed API keys, passwords, and credentials
 - **Docker Security**: Analyzes Dockerfiles for vulnerable dependencies
 - **Smart Caching**: Avoids redundant scans with commit-level caching
-- **Flexible Deployment**: Local development and HTTP-only production scenarios
 - **Zero Config**: Works out of the box, enhanced with optional API keys
+
+## Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `check_package_vulnerabilities` | Check a specific Python package for vulnerabilities |
+| `scan_dependencies` | Scan dependency files (requirements.txt, pyproject.toml, etc.) |
+| `scan_installed_packages` | Scan currently installed Python packages |
+| `get_cve_details` | Get detailed information about a specific CVE |
+| `scan_for_secrets` | Detect exposed secrets and credentials in code |
+| `scan_dockerfile` | Analyze Dockerfiles for vulnerable Python dependencies |
+| `scan_github_repo` | Comprehensive security scan of GitHub repositories |
+| `assess_operation_safety` | AI-powered risk assessment for operations |
+| `validate_mcp_security` | Validate MCP server security configurations |
+| `comprehensive_security_check` | Interactive AI-powered security assessment |
+
+## Optional API Keys
+
+Enhance VulniCheck with API keys for better rate limits and AI features:
+
+```bash
+docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  -e OPENAI_API_KEY=your-key \           # AI-powered risk assessment
+  -e ANTHROPIC_API_KEY=your-key \        # Alternative AI provider
+  -e GITHUB_TOKEN=your-token \           # Higher GitHub API rate limits
+  -e NVD_API_KEY=your-key \              # Higher NVD rate limits
+  andrasfe/vulnicheck:latest
+```
+
+## Building from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/andrasfe/vulnicheck.git
+cd vulnicheck
+
+# Build Docker image
+docker build -t vulnicheck .
+
+# Run locally built image
+docker run -d --name vulnicheck-mcp -p 3000:3000 vulnicheck
+```
+
+## Docker Hub
+
+The official Docker image is available at:
+- **Docker Hub**: [andrasfe/vulnicheck](https://hub.docker.com/r/andrasfe/vulnicheck)
+- **Latest Tag**: `andrasfe/vulnicheck:latest`
 
 ## Requirements
 
 - Docker
-- Claude Code or compatible MCP client with HTTP transport support
+- Claude Code or any MCP client with HTTP transport support
+- Optional: API keys for enhanced features
 
 ## Supported File Types
 
-- **Dependencies**: `requirements.txt`, `pyproject.toml`, `setup.py`, lock files (`uv.lock`, `requirements.lock`, etc.)
+- **Dependencies**: `requirements.txt`, `pyproject.toml`, `setup.py`, lock files
 - **Containers**: `Dockerfile`, `docker-compose.yml`
-- **Secrets**: All text-based files (excludes binary files, git history)
+- **Secrets**: All text-based source files
 - **GitHub**: Any public or private repository URL
-
-## Deployment
-
-### Docker Setup (Recommended)
-```bash
-# Clone and build
-git clone -b docker-deployment https://github.com/andrasfe/vulnicheck.git
-cd vulnicheck
-docker build -t vulnicheck .
-
-# Run with optional API keys
-docker run -d --name vulnicheck -p 3000:3000 \
-  -e OPENAI_API_KEY=your-key \
-  -e ANTHROPIC_API_KEY=your-key \
-  vulnicheck
-```
-
-The server will be available at http://localhost:3000/mcp
 
 ## Support
 
-- **Installation Guide**: See [CLAUDE_INSTALL.md](CLAUDE_INSTALL.md) for setup instructions
-- **Project Documentation**: See [CLAUDE.md](CLAUDE.md) for development details
 - **Issues**: Report problems at https://github.com/andrasfe/vulnicheck/issues
-- **Development**: Contributions welcome! See CLAUDE.md for development setup
+- **Development**: See [CLAUDE.md](CLAUDE.md) for development details
+- **Security**: Report security issues privately via GitHub Security Advisories
 
 ---
 
-**DISCLAIMER**: Vulnerability data provided "AS IS" without warranty. Users responsible for verification.
+**DISCLAIMER**: Vulnerability data provided "AS IS" without warranty. Users are responsible for verification and remediation.

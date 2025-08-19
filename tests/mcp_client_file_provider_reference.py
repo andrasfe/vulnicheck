@@ -138,7 +138,7 @@ async def read_file_binary(file_path: str) -> str | dict[str, str]:
         return {"error_type": "FileProviderError", "error": path_result["error"]}
 
     size_check = check_file_size(file_path)
-    if not size_check["valid"]:
+    if size_check is not None and not size_check["valid"]:
         if "too large" in size_check["error"].lower():
             return {"error_type": "FileSizeLimitExceededError", "error": size_check["error"]}
         elif "does not exist" in size_check["error"].lower():
