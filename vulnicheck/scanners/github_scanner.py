@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from ..core.space_manager import SpaceConfig, get_space_manager
 from .docker_scanner import DockerScanner
 from .scanner import DependencyScanner
 from .secrets_scanner import SecretsScanner
@@ -39,7 +40,7 @@ class ScanDepth(Enum):
 @dataclass
 class ScanConfig:
     """Configuration for repository scanning."""
-    max_repo_size_mb: int = 500
+    max_repo_size_mb: int = 1000  # 1GB limit per repository
     max_files_to_scan: int = 10000
     timeout_seconds: int = 300
     scan_depth: ScanDepth = ScanDepth.STANDARD
@@ -48,6 +49,7 @@ class ScanConfig:
         'vendor/', 'dist/', 'build/', '__pycache__/'
     ])
     cache_ttl_hours: int = 24
+    max_total_temp_space_mb: int = 2000  # 2GB total space limit for all temp repos
 
 
 @dataclass
@@ -98,6 +100,14 @@ class GitHubRepoScanner:
         # Set up cache directory
         self.cache_dir = cache_dir or Path.home() / ".vulnicheck" / "repo_cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize space manager
+        space_config = SpaceConfig(
+            max_temp_space_mb=2000,  # 2GB limit for temp space
+            max_cache_space_mb=500,   # 500MB for cache
+            min_free_space_mb=100     # Keep at least 100MB free
+        )
+        self.space_manager = get_space_manager(space_config)
 
     def parse_github_url(self, url: str) -> GitHubRepoInfo:
         """Parse GitHub URL to extract repository information.
@@ -181,20 +191,42 @@ class GitHubRepoScanner:
         repo_info: GitHubRepoInfo,
         target_dir: Path,
         auth_token: str | None = None,
-        depth: int = 1
+        depth: int = 1,
+        max_repo_size_mb: int = 50
     ) -> tuple[bool, str]:
-        """Clone repository to target directory.
+        """Clone repository to target directory with space management.
 
         Returns:
             Tuple of (success, message/error)
         """
+        # Check available space before cloning
+        can_proceed, space_msg = await self.space_manager.check_space_before_clone(
+            estimated_size_mb=max_repo_size_mb
+        )
+
+        if not can_proceed:
+            logger.warning(f"Space check failed for {repo_info.owner}/{repo_info.repo}: {space_msg}")
+            # Try cleanup and check again
+            freed_mb = await self.space_manager.cleanup_old_temp_dirs(max_age_seconds=1800)  # 30 min
+            if freed_mb > 0:
+                logger.info(f"Freed {freed_mb:.1f}MB by cleaning old temp directories")
+                can_proceed, space_msg = await self.space_manager.check_space_before_clone(
+                    estimated_size_mb=max_repo_size_mb
+                )
+
+            if not can_proceed:
+                return False, f"Insufficient disk space: {space_msg}"
+
+        # Register this directory for tracking
+        await self.space_manager.register_temp_directory(target_dir)
+
         # Use authenticated URL if token provided
         if auth_token:
             clone_url = repo_info.clone_url_with_token(auth_token)
         else:
             clone_url = repo_info.clone_url
 
-        # Build git command
+        # Build git command with size limit
         cmd = ["git", "clone", "--depth", str(depth)]
 
         if repo_info.branch:
@@ -217,6 +249,21 @@ class GitHubRepoScanner:
                     error_msg = error_msg.replace(auth_token, "***")
                 return False, f"Git clone failed: {error_msg}"
 
+            # Check actual size after cloning
+            actual_size_mb = self.space_manager.get_directory_size_mb(target_dir)
+            if actual_size_mb > max_repo_size_mb:
+                logger.warning(
+                    f"Cloned repository {repo_info.owner}/{repo_info.repo} exceeds size limit: "
+                    f"{actual_size_mb:.1f}MB > {max_repo_size_mb}MB"
+                )
+                # Clean up the oversized repository
+                import shutil
+                shutil.rmtree(target_dir, ignore_errors=True)
+                await self.space_manager.unregister_temp_directory(target_dir)
+                return False, f"Repository too large: {actual_size_mb:.1f}MB exceeds {max_repo_size_mb}MB limit"
+
+            logger.info(f"Successfully cloned {repo_info.owner}/{repo_info.repo} ({actual_size_mb:.1f}MB)")
+
             # Get the actual commit hash
             if not repo_info.commit:
                 git_dir = target_dir / ".git"
@@ -234,6 +281,8 @@ class GitHubRepoScanner:
             return True, "Repository cloned successfully"
 
         except Exception as e:
+            # Unregister on error
+            await self.space_manager.unregister_temp_directory(target_dir)
             return False, f"Clone error: {str(e)}"
 
     async def scan_repository(
@@ -302,15 +351,18 @@ class GitHubRepoScanner:
             with tempfile.TemporaryDirectory() as temp_dir:
                 repo_path = Path(temp_dir) / "repo"
 
-                # Clone repository
+                # Clone repository with size limit
                 success, message = await self.clone_repository(
                     repo_info, repo_path, auth_token,
-                    depth=1 if scan_config.scan_depth == ScanDepth.QUICK else 10
+                    depth=1 if scan_config.scan_depth == ScanDepth.QUICK else 10,
+                    max_repo_size_mb=scan_config.max_repo_size_mb
                 )
 
                 if not success:
                     results["status"] = "error"
                     results["error"] = message
+                    # Ensure cleanup on error
+                    await self.space_manager.unregister_temp_directory(repo_path)
                     return results
 
                 # Update commit info if we got it from clone
@@ -357,6 +409,13 @@ class GitHubRepoScanner:
 
                 # Cache results
                 self._save_cached_results(cache_key, results)
+
+                # Unregister the temp directory before context exit
+                await self.space_manager.unregister_temp_directory(repo_path)
+
+                # Log space usage for monitoring
+                space_report = await self.space_manager.get_space_report()
+                logger.debug(f"Space usage after scan: {space_report}")
 
         except Exception as e:
             results["status"] = "error"

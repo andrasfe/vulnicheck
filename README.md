@@ -1,6 +1,6 @@
 # VulniCheck - AI-Powered Security Scanner
 
-VulniCheck provides comprehensive security analysis for Python projects and GitHub repositories using AI-powered vulnerability detection. It runs as a Docker-based HTTP MCP server, providing secure containerized deployment with comprehensive vulnerability scanning capabilities.
+VulniCheck provides comprehensive security analysis for Python projects and GitHub repositories using AI-powered vulnerability detection. It runs as a Docker-based HTTP MCP server with standard HTTP streaming (no SSE required), providing secure containerized deployment with comprehensive vulnerability scanning capabilities.
 
 ## Quick Start
 
@@ -12,11 +12,13 @@ docker pull andrasfe/vulnicheck:latest
 
 # Run with OpenAI API key (for enhanced AI-powered risk assessment)
 docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  --restart=unless-stopped \
   -e OPENAI_API_KEY=your-openai-api-key \
   andrasfe/vulnicheck:latest
 
 # Or run without API key (basic vulnerability scanning)
 docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  --restart=unless-stopped \
   andrasfe/vulnicheck:latest
 ```
 
@@ -52,14 +54,15 @@ VulniCheck will:
 
 ## Key Features
 
-- **Docker Deployment**: Secure containerized deployment with HTTP streaming
+- **Docker Deployment**: Secure containerized deployment with HTTP streaming (no SSE/Server-Sent Events required)
 - **Production Ready**: Scalable HTTP server architecture
 - **Comprehensive Coverage**: Queries 5+ vulnerability databases (OSV.dev, NVD, GitHub Advisory, CIRCL, Safety DB)
-- **GitHub Integration**: Scan any public/private GitHub repository directly
+- **GitHub Integration**: Scan any public/private GitHub repository directly (up to 1GB)
 - **AI-Powered Analysis**: Uses OpenAI/Anthropic APIs for intelligent security assessment
 - **Secrets Detection**: Finds exposed API keys, passwords, and credentials
 - **Docker Security**: Analyzes Dockerfiles for vulnerable dependencies
 - **Smart Caching**: Avoids redundant scans with commit-level caching
+- **Space Management**: Automatic cleanup prevents disk exhaustion (2GB total limit)
 - **Zero Config**: Works out of the box, enhanced with optional API keys
 
 ## Available Tools
@@ -83,6 +86,7 @@ Enhance VulniCheck with API keys for better rate limits and AI features:
 
 ```bash
 docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  --restart=unless-stopped \
   -e OPENAI_API_KEY=your-key \           # AI-powered risk assessment
   -e ANTHROPIC_API_KEY=your-key \        # Alternative AI provider
   -e GITHUB_TOKEN=your-token \           # Higher GitHub API rate limits
@@ -101,7 +105,7 @@ cd vulnicheck
 docker build -t vulnicheck .
 
 # Run locally built image
-docker run -d --name vulnicheck-mcp -p 3000:3000 vulnicheck
+docker run -d --name vulnicheck-mcp -p 3000:3000 --restart=unless-stopped vulnicheck
 ```
 
 ## Docker Hub
@@ -113,7 +117,7 @@ The official Docker image is available at:
 ## Requirements
 
 - Docker
-- Claude Code or any MCP client with HTTP transport support
+- Claude Code or any MCP client with HTTP transport support (standard HTTP, no SSE required)
 - Optional: API keys for enhanced features
 
 ## Supported File Types
