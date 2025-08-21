@@ -12,6 +12,7 @@ from pydantic import Field
 
 from .clients import CIRCLClient, GitHubClient, NVDClient, OSVClient, SafetyDBClient
 from .core import get_mcp_paths_for_agent
+from .core.unified_scanner import ScanContext, UnifiedScannerError, get_unified_scanner
 from .mcp import (
     ConversationStorage,
     MCPValidator,
@@ -551,17 +552,23 @@ async def _check_package(package_name: str, version_spec: str) -> list[Any]:
 @mcp.tool
 async def scan_dependencies(
     file_content: Annotated[
-        str,
+        str | None,
         Field(
             description="Content of a dependency file (requirements.txt, pyproject.toml, setup.py, Pipfile.lock, poetry.lock) to scan for vulnerabilities"
         ),
-    ],
+    ] = None,
     file_name: Annotated[
-        str,
+        str | None,
         Field(
             description="Name of the dependency file (e.g., 'requirements.txt', 'pyproject.toml', 'setup.py') to determine parsing format"
         ),
-    ],
+    ] = None,
+    zip_content: Annotated[
+        str | None,
+        Field(
+            description="Base64 encoded zip file containing dependency files to scan"
+        ),
+    ] = None,
     include_details: Annotated[
         bool,
         Field(
@@ -576,12 +583,17 @@ async def scan_dependencies(
     - You want to scan all dependencies in a project
     - The user asks to "scan my project" or "check my dependencies"
     - You need to analyze dependency file contents for vulnerabilities
+    - You have a zip file containing dependency files to scan
 
     DO NOT USE THIS TOOL FOR:
     - Checking a single package (use check_package_vulnerabilities instead)
     - Scanning the current Python environment (use scan_installed_packages instead)
     - Checking MCP configurations (use validate_mcp_security instead)
     - Finding secrets in code (use scan_for_secrets instead)
+
+    INPUT OPTIONS (specify exactly one):
+    - file_content + file_name: Traditional file content scanning
+    - zip_content: Base64 encoded zip file containing dependency files
 
     Supports multiple dependency file formats:
     - requirements.txt (with or without pinned versions)
@@ -592,71 +604,171 @@ async def scan_dependencies(
     IMPORTANT: All vulnerability data is provided 'AS IS' without warranty.
     See README.md for full disclaimer."""
     try:
-        logger.info(f"Starting scan of {file_name} content")
+        # Input validation
+        if zip_content and (file_content or file_name):
+            return "Error: Cannot specify both zip_content and traditional file inputs. Please use either zip_content OR file_content+file_name."
+
+        if not zip_content and not (file_content and file_name):
+            return "Error: Must specify either zip_content OR both file_content and file_name."
+
         _ensure_clients_initialized()
 
-        # Parse dependencies from content based on file type
-        dependencies = _parse_dependency_content(file_content, file_name)
+        # Use unified scanner for input handling
+        scanner = get_unified_scanner()
 
-        # Check each dependency
-        results = {}
-        for pkg_name, version_spec in dependencies:
-            vulns = await _check_package(pkg_name, version_spec)
-            results[f"{pkg_name}{version_spec}"] = vulns
+        # Prepare traditional input if provided
+        traditional_input = None
+        if file_content and file_name:
+            traditional_input = {"file_content": file_content, "file_name": file_name}
 
-        logger.info(f"Scan complete, found {len(results)} packages")
+        # Use context manager for automatic cleanup
+        async with ScanContext(
+            scanner=scanner,
+            zip_content=zip_content,
+            traditional_input=traditional_input,
+            scan_type="dependencies"
+        ) as (scan_mode, scan_context):
 
-        # Calculate totals
-        total_vulns = sum(len(v) for v in results.values())
-        affected = [p for p, v in results.items() if v]
+            logger.info(f"Starting dependency scan in {scan_mode} mode")
 
-        # Check if we found lock file versions or scanned imports
-        has_lock_versions = any("==" in pkg for pkg in results)
-        has_imports_scan = any("(latest)" in pkg for pkg in results)
+            if scan_mode == "zip":
+                # Zip mode: scan all dependency files found
+                dependency_files = scan_context.get("dependency_files", [])
 
-        lines = [
-            "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
-            "",
-            "# Dependency Scan Report",
-            f"File: {file_name}",
-            f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            "",
-            "## Summary",
-            f"- Scanned: {len(results)} packages",
-            f"- Affected: {len(affected)} packages",
-            f"- Total vulnerabilities: {total_vulns}",
-        ]
+                if not dependency_files:
+                    return (
+                        "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.\n\n"
+                        "# Dependency Scan Report\n"
+                        "## Summary\n"
+                        "No dependency files found in zip archive.\n\n"
+                        "Expected files: requirements.txt, pyproject.toml, setup.py, Pipfile.lock, poetry.lock"
+                    )
 
-        if has_imports_scan:
-            lines.append("- Mode: Python import scanning (no requirements file found)")
-            lines.append("- Checking latest versions of imported packages")
-        elif has_lock_versions:
-            lines.append("- Using lock file for accurate version checking")
-        else:
-            lines.append("- No lock file found, checking version ranges")
+                # Scan all dependency files and aggregate results
+                all_results = {}
+                file_summaries = []
 
-        lines.append("")
+                for dep_file in dependency_files:
+                    try:
+                        content = await scanner.read_file_content(dep_file, scan_context)
+                        extraction_path = scan_context["extraction_path"]
+                        relative_path = dep_file.relative_to(extraction_path)
 
-        if not affected:
-            lines.append("No vulnerabilities found!")
-            return "\n".join(lines)
+                        # Parse dependencies from this file
+                        dependencies = _parse_dependency_content(content, relative_path.name)
 
-        lines.append("## Affected Packages")
-        for pkg, vulns in results.items():
-            if vulns:
-                lines.extend([f"\n### {pkg}", f"Found: {len(vulns)} vulnerabilities"])
+                        # Check each dependency
+                        file_results = {}
+                        for pkg_name, version_spec in dependencies:
+                            key = f"{pkg_name}{version_spec}"
+                            if key not in all_results:  # Avoid duplicate checks
+                                vulns = await _check_package(pkg_name, version_spec)
+                                all_results[key] = vulns
+                                file_results[key] = vulns
 
-                # Show vulnerabilities with details
-                for v in vulns[:5]:
-                    if include_details:
-                        # Include full vulnerability details inline
-                        lines.extend(
-                            [
-                                f"\n#### {v.id}",
-                                f"**Severity**: {_get_severity(v)}",
-                                f"**Summary**: {v.summary or 'No summary available'}",
-                            ]
-                        )
+                        # Track file summary
+                        file_affected = [p for p, v in file_results.items() if v]
+                        file_summaries.append({
+                            "file": str(relative_path),
+                            "packages": len(file_results),
+                            "affected": len(file_affected),
+                            "vulns": sum(len(v) for v in file_results.values())
+                        })
+
+                    except Exception as e:
+                        logger.warning(f"Error processing {dep_file}: {e}")
+                        continue
+
+                # Use aggregated results
+                results = all_results
+                scan_source = f"Zip archive ({len(dependency_files)} dependency files)"
+
+            else:
+                # Traditional mode: single file
+                content_result, filename = await scanner.get_dependency_content(scan_context)
+                if not content_result or not filename:
+                    return "Error: No dependency content available"
+
+                # Type checking - ensure content is string
+                if not isinstance(content_result, str):
+                    return "Error: Invalid dependency content format"
+
+                content = content_result  # Now we know it's a string
+
+                logger.info(f"Starting scan of {filename} content")
+
+                # Parse dependencies from content based on file type
+                dependencies = _parse_dependency_content(content, filename)
+
+                # Check each dependency
+                results = {}
+                for pkg_name, version_spec in dependencies:
+                    vulns = await _check_package(pkg_name, version_spec)
+                    results[f"{pkg_name}{version_spec}"] = vulns
+
+                scan_source = filename
+
+            logger.info(f"Scan complete, found {len(results)} packages")
+
+            # Calculate totals
+            total_vulns = sum(len(v) for v in results.values())
+            affected = [p for p, v in results.items() if v]
+
+            # Check if we found lock file versions or scanned imports
+            has_lock_versions = any("==" in pkg for pkg in results)
+            has_imports_scan = any("(latest)" in pkg for pkg in results)
+
+            lines = [
+                "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
+                "",
+                "# Dependency Scan Report",
+                f"Source: {scan_source}",
+                f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                f"Mode: {scan_mode.title()}",
+                "",
+                "## Summary",
+                f"- Scanned: {len(results)} packages",
+                f"- Affected: {len(affected)} packages",
+                f"- Total vulnerabilities: {total_vulns}",
+            ]
+
+            # Add file breakdown for zip mode
+            if scan_mode == "zip" and 'file_summaries' in locals():
+                lines.append("\n### File Breakdown")
+                for summary in file_summaries:
+                    lines.append(f"- {summary['file']}: {summary['packages']} packages, {summary['affected']} affected, {summary['vulns']} vulnerabilities")
+
+            if has_imports_scan:
+                lines.append("- Mode: Python import scanning (no requirements file found)")
+                lines.append("- Checking latest versions of imported packages")
+            elif has_lock_versions:
+                lines.append("- Using lock file for accurate version checking")
+            else:
+                lines.append("- No lock file found, checking version ranges")
+
+            lines.append("")
+
+            if not affected:
+                lines.append("No vulnerabilities found!")
+                return "\n".join(lines)
+
+            lines.append("## Affected Packages")
+
+            for pkg, vulns in results.items():
+                if vulns:
+                    lines.extend([f"\n### {pkg}", f"Found: {len(vulns)} vulnerabilities"])
+
+                    # Show vulnerabilities with details
+                    for v in vulns[:5]:
+                        if include_details:
+                            # Include full vulnerability details inline
+                            lines.extend(
+                                [
+                                    f"\n#### {v.id}",
+                                    f"**Severity**: {_get_severity(v)}",
+                                    f"**Summary**: {v.summary or 'No summary available'}",
+                                ]
+                            )
 
                         # Add aliases (including CVE IDs)
                         if v.aliases:
@@ -735,14 +847,18 @@ async def scan_dependencies(
                         if v.summary:
                             lines.append(f"  {v.summary[:100]}...")
 
-        return "\n".join(lines)
+            return "\n".join(lines)
+
+    except UnifiedScannerError as e:
+        logger.error(f"Unified scanner error: {e}")
+        return f"Input error: {str(e)}\n\nPlease check:\n1. For zip input: Ensure the zip file is valid and base64 encoded\n2. For file input: Provide both file_content and file_name\n3. Use only one input method (zip OR file content)"
 
     except Exception as e:
         import traceback
 
         error_details = traceback.format_exc()
-        logger.error(f"Error scanning {file_name}: {e}\n{error_details}")
-        return f"Error scanning dependencies: {str(e)}\n\nPlease check:\n1. The file content is valid\n2. The file format is supported (requirements.txt, pyproject.toml, setup.py, Pipfile.lock, poetry.lock)\n3. The file content is properly formatted\n\nFile: {file_name}"
+        logger.error(f"Error in dependency scan: {e}\n{error_details}")
+        return f"Error scanning dependencies: {str(e)}\n\nPlease check:\n1. The file content is valid\n2. The file format is supported (requirements.txt, pyproject.toml, setup.py, Pipfile.lock, poetry.lock)\n3. The file content is properly formatted\n4. For zip files: ensure proper base64 encoding and valid zip structure"
 
 
 @mcp.tool
@@ -1150,11 +1266,17 @@ def _filter_secret_false_positives(secrets: list[dict]) -> list[dict]:
 @mcp.tool
 async def scan_for_secrets(
     files: Annotated[
-        list[dict[str, str]],
+        list[dict[str, str]] | None,
         Field(
             description="List of files to scan. Each file should have 'path' (relative path) and 'content' (file content) keys. Example: [{'path': 'config.py', 'content': 'API_KEY = \"secret\"'}, ...]"
         ),
-    ],
+    ] = None,
+    zip_content: Annotated[
+        str | None,
+        Field(
+            description="Base64 encoded zip file containing files to scan for secrets"
+        ),
+    ] = None,
     exclude_patterns: Annotated[
         list[str] | None,
         Field(
@@ -1170,12 +1292,17 @@ async def scan_for_secrets(
     - The user asks to "check for secrets" or "find exposed credentials"
     - You want to scan source code for hardcoded sensitive information
     - Security audit requires checking for leaked credentials
+    - You have a zip file containing source code to scan for secrets
 
     DO NOT USE THIS TOOL FOR:
     - Finding package vulnerabilities (use check_package_vulnerabilities or scan_dependencies)
     - Checking MCP configurations (use validate_mcp_security instead)
     - Looking for CVEs or security advisories
     - General vulnerability scanning
+
+    INPUT OPTIONS (specify exactly one):
+    - files: List of files with path and content keys (traditional)
+    - zip_content: Base64 encoded zip file containing files to scan
 
     Uses detect-secrets to identify potential secrets like:
     - API keys (AWS, Azure, GCP, etc.)
@@ -1191,102 +1318,137 @@ async def scan_for_secrets(
     Returns a formatted report with findings grouped by file and severity.
     """
     try:
-        logger.info(f"Starting secrets scan of {len(files)} files")
+        # Input validation
+        if zip_content and files:
+            return "Error: Cannot specify both zip_content and files. Please use either zip_content OR files."
+
+        if not zip_content and not files:
+            return "Error: Must specify either zip_content OR files."
+
         _ensure_clients_initialized()
 
-        # Scan each file content for secrets using content-based detection
-        all_secrets = []
+        # Use unified scanner for input handling
+        scanner = get_unified_scanner()
 
-        for file_info in files:
-            file_path = file_info.get('path', 'unknown')
-            file_content = file_info.get('content', '')
+        # Prepare traditional input if provided
+        traditional_input = None
+        if files:
+            traditional_input = {"files": files}
 
-            # Skip excluded files
-            if exclude_patterns:
-                import fnmatch
-                skip_file = False
-                for pattern in exclude_patterns:
-                    if fnmatch.fnmatch(file_path, pattern):
-                        skip_file = True
-                        break
-                if skip_file:
-                    continue
+        # Use context manager for automatic cleanup
+        async with ScanContext(
+            scanner=scanner,
+            zip_content=zip_content,
+            traditional_input=traditional_input,
+            scan_type="secrets"
+        ) as (scan_mode, scan_context):
 
-            # Scan content for secrets using detect-secrets patterns
-            file_secrets = _scan_content_for_secrets(file_content, file_path)
-            all_secrets.extend(file_secrets)
+            # Get files for secrets scanning
+            scan_files = await scanner.get_files_for_secrets_scan(scan_context)
 
-        # Filter and deduplicate
-        secrets = _filter_secret_false_positives(all_secrets)
+            logger.info(f"Starting secrets scan of {len(scan_files)} files in {scan_mode} mode")
 
-        # Build report
-        lines = [
-            "# Secrets Scan Report",
-            f"Files: {len(files)} files scanned",
-            f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            "",
-            "## Summary",
-            f"- Total secrets found: {len(secrets)}",
-        ]
+            # Scan each file content for secrets using content-based detection
+            all_secrets = []
 
-        if not secrets:
-            lines.append("\n✅ No secrets detected!")
-            return "\n".join(lines)
+            for file_info in scan_files:
+                file_path = file_info.get('path', 'unknown')
+                file_content = file_info.get('content', '')
 
-        # Count by severity
-        severity_counts: dict[str, int] = {}
-        for secret in secrets:
-            severity = secret['severity']
-            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+                # Skip excluded files
+                if exclude_patterns:
+                    import fnmatch
+                    skip_file = False
+                    for pattern in exclude_patterns:
+                        if fnmatch.fnmatch(file_path, pattern):
+                            skip_file = True
+                            break
+                    if skip_file:
+                        continue
 
-        lines.append("\n### Severity Distribution")
-        for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
-            if count := severity_counts.get(severity, 0):
-                lines.append(f"- {severity}: {count}")
+                # Scan content for secrets using detect-secrets patterns
+                file_secrets = _scan_content_for_secrets(file_content, file_path)
+                all_secrets.extend(file_secrets)
 
-        # Group secrets by file
-        secrets_by_file: dict[str, list[Any]] = {}
-        for secret in secrets:
-            if secret['file'] not in secrets_by_file:
-                secrets_by_file[secret['file']] = []
-            secrets_by_file[secret['file']].append(secret)
+            # Filter and deduplicate
+            secrets = _filter_secret_false_positives(all_secrets)
 
-        lines.append("\n## Detected Secrets")
+            # Build report
+            scan_source = "Zip archive" if scan_mode == "zip" else f"{len(scan_files)} files"
 
-        # Show detailed findings
-        for file_path, file_secrets in sorted(secrets_by_file.items()):
-            lines.append(f"\n### {file_path}")
-            lines.append(f"Found {len(file_secrets)} secret(s):")
+            lines = [
+                "# Secrets Scan Report",
+                f"Source: {scan_source}",
+                f"Files: {len(scan_files)} files scanned",
+                f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                f"Mode: {scan_mode.title()}",
+                "",
+                "## Summary",
+                f"- Total secrets found: {len(secrets)}",
+            ]
 
-            for secret in sorted(file_secrets, key=lambda s: s['line']):
-                lines.extend(
-                    [
-                        f"\n**Line {secret['line']}** - {secret['type']}",
-                        f"- Severity: {secret['severity']}",
-                        f"- Value: {secret['value'][:8]}...",
-                    ]
-                )
+            if not secrets:
+                lines.append("\n✅ No secrets detected!")
+                return "\n".join(lines)
+
+            # Count by severity
+            severity_counts: dict[str, int] = {}
+            for secret in secrets:
+                severity = secret['severity']
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+            lines.append("\n### Severity Distribution")
+            for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                if count := severity_counts.get(severity, 0):
+                    lines.append(f"- {severity}: {count}")
+
+            # Group secrets by file
+            secrets_by_file: dict[str, list[Any]] = {}
+            for secret in secrets:
+                if secret['file'] not in secrets_by_file:
+                    secrets_by_file[secret['file']] = []
+                secrets_by_file[secret['file']].append(secret)
+
+            lines.append("\n## Detected Secrets")
+
+            # Show detailed findings
+            for file_path, file_secrets in sorted(secrets_by_file.items()):
+                lines.append(f"\n### {file_path}")
+                lines.append(f"Found {len(file_secrets)} secret(s):")
+
+                for secret in sorted(file_secrets, key=lambda s: s['line']):
+                    lines.extend(
+                        [
+                            f"\n**Line {secret['line']}** - {secret['type']}",
+                            f"- Severity: {secret['severity']}",
+                            f"- Value: {secret['value'][:8]}...",
+                        ]
+                    )
 
                 # Note: verification not implemented in simplified scanner
 
-        lines.extend(
-            [
-                "",
-                "## Recommendations",
-                "1. Remove any real secrets from the codebase",
-                "2. Use environment variables for sensitive configuration",
-                "3. Add detected secrets to .gitignore if they are local config files",
-                "4. Consider using a secrets management system",
-                "5. Rotate any exposed credentials immediately",
-                "",
-                "⚠️  **Note**: Some detections may be false positives. Review each finding carefully.",
-            ]
-        )
+            lines.extend(
+                [
+                    "",
+                    "## Recommendations",
+                    "1. Remove any real secrets from the codebase",
+                    "2. Use environment variables for sensitive configuration",
+                    "3. Add detected secrets to .gitignore if they are local config files",
+                    "4. Consider using a secrets management system",
+                    "5. Rotate any exposed credentials immediately",
+                    "",
+                    "⚠️  **Note**: Some detections may be false positives. Review each finding carefully.",
+                ]
+            )
 
-        return "\n".join(lines)
+            return "\n".join(lines)
+
+    except UnifiedScannerError as e:
+        logger.error(f"Unified scanner error: {e}")
+        return f"Input error: {str(e)}\n\nPlease check:\n1. For zip input: Ensure the zip file is valid and base64 encoded\n2. For file input: Provide files list with path and content keys\n3. Use only one input method (zip OR files)"
 
     except Exception as e:
-        logger.error(f"Error scanning for secrets in {len(files)} files: {e}")
+        logger.error(f"Error scanning for secrets: {e}")
         return f"Error: {str(e)}"
 
 
@@ -2034,7 +2196,13 @@ async def scan_dockerfile(
     dockerfile_content: Annotated[
         str | None,
         Field(
-            description="Content of the Dockerfile as a string. Either this or dockerfile_path must be provided."
+            description="Content of the Dockerfile as a string. Either this or dockerfile_content must be provided."
+        ),
+    ] = None,
+    zip_content: Annotated[
+        str | None,
+        Field(
+            description="Base64 encoded zip file containing Dockerfiles to scan"
         ),
     ] = None,
 ) -> str:
@@ -2047,9 +2215,15 @@ async def scan_dockerfile(
     - You need to check vulnerabilities in Docker images
     - You want to analyze Python dependencies in Dockerfiles
     - You need to audit container security for Python packages
+    - You have a zip file containing Dockerfiles to scan
+
+    INPUT OPTIONS (specify exactly one):
+    - dockerfile_path: Absolute path to a Dockerfile
+    - dockerfile_content: Content of a Dockerfile as string
+    - zip_content: Base64 encoded zip file containing Dockerfiles
 
     The tool will:
-    1. Parse the Dockerfile to find Python package installations
+    1. Parse the Dockerfile(s) to find Python package installations
     2. Extract package names and versions from various installation methods
     3. Check each package for known vulnerabilities
     4. Return a detailed report with vulnerability information
@@ -2069,142 +2243,235 @@ async def scan_dockerfile(
     - Referenced dependency files
     """
     try:
+        # Input validation
+        input_count = sum(bool(x) for x in [dockerfile_path, dockerfile_content, zip_content])
+        if input_count != 1:
+            return "Error: Must specify exactly one input: dockerfile_path, dockerfile_content, OR zip_content."
+
         _ensure_clients_initialized()
         assert docker_scanner is not None
 
-        # Validate inputs
-        if not dockerfile_path and not dockerfile_content:
-            return """❌ **Error**: Either dockerfile_path or dockerfile_content must be provided.
+        # Use unified scanner for input handling
+        scanner = get_unified_scanner()
 
-Usage:
-- Provide dockerfile_path: An absolute path to a Dockerfile
-- Provide dockerfile_content: The content of a Dockerfile as a string"""
+        # Prepare traditional input if provided
+        traditional_input = None
+        if dockerfile_path or dockerfile_content:
+            traditional_input = {"dockerfile_path": dockerfile_path, "dockerfile_content": dockerfile_content}
 
-        # Run the scan
-        results = await docker_scanner.scan_dockerfile_async(
-            dockerfile_path=dockerfile_path,
-            dockerfile_content=dockerfile_content
-        )
+        # Use context manager for automatic cleanup
+        async with ScanContext(
+            scanner=scanner,
+            zip_content=zip_content,
+            traditional_input=traditional_input,
+            scan_type="dockerfile"
+        ) as (scan_mode, scan_context):
 
-        # Check for errors
-        if results.get("error"):
-            return f"❌ **Error scanning Dockerfile**: {results['error']}"
+            logger.info(f"Starting Dockerfile scan in {scan_mode} mode")
 
-        # Format the results
-        lines = ["# Dockerfile Vulnerability Scan Report", ""]
+            if scan_mode == "zip":
+                # Zip mode: scan all Dockerfiles found
+                dockerfiles = scan_context.get("dockerfiles", [])
 
-        # Summary
-        lines.extend([
-            "## Summary",
-            f"- Total packages found: {results['packages_found']}",
-            f"- Vulnerable packages: {len(results['vulnerable_packages'])}",
-            f"- Total vulnerabilities: {results['total_vulnerabilities']}",
-            ""
-        ])
+                if not dockerfiles:
+                    return (
+                        "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.\n\n"
+                        "# Dockerfile Scan Report\n"
+                        "## Summary\n"
+                        "No Dockerfiles found in zip archive.\n\n"
+                        "Expected files: Dockerfile, dockerfile, *.dockerfile"
+                    )
 
-        # Severity breakdown
-        if results['total_vulnerabilities'] > 0:
-            lines.extend([
-                "## Severity Breakdown",
-                f"- CRITICAL: {results['severity_summary']['CRITICAL']}",
-                f"- HIGH: {results['severity_summary']['HIGH']}",
-                f"- MODERATE: {results['severity_summary']['MODERATE']}",
-                f"- LOW: {results['severity_summary']['LOW']}",
-                f"- UNKNOWN: {results['severity_summary']['UNKNOWN']}",
+                # Scan all Dockerfiles and aggregate results
+                all_packages = {}
+                dockerfile_summaries = []
+
+                for dockerfile_item in dockerfiles:
+                    try:
+                        # Convert to Path object for processing
+                        dockerfile_file: Path = Path(dockerfile_item) if isinstance(dockerfile_item, str) else dockerfile_item
+
+                        content = await scanner.read_file_content(dockerfile_file, scan_context)
+                        extraction_path = scan_context["extraction_path"]
+                        relative_path = dockerfile_file.relative_to(extraction_path)
+
+                        # Scan this Dockerfile
+                        result = docker_scanner.scan_dockerfile(dockerfile_content=content)
+                        packages = []
+                        if result.get("packages"):
+                            packages = [(pkg["name"], pkg["version"]) for pkg in result["packages"]]
+
+                        # Add to aggregated results (avoid duplicates)
+                        for pkg_name, pkg_version in packages:
+                            key = f"{pkg_name}:{pkg_version}"
+                            if key not in all_packages:
+                                all_packages[key] = (pkg_name, pkg_version, str(relative_path))
+
+                        # Track summary
+                        dockerfile_summaries.append({
+                            "file": str(relative_path),
+                            "packages": len(packages)
+                        })
+
+                    except Exception as e:
+                        logger.warning(f"Error processing {dockerfile_item}: {e}")
+                        continue
+
+                # Convert to format expected by scanner
+                packages_list = [(pkg_name, pkg_version) for pkg_name, pkg_version, _ in all_packages.values()]
+                scan_source = f"Zip archive ({len(dockerfiles)} Dockerfiles)"
+
+            else:
+                # Traditional mode: single Dockerfile
+                content_result, dockerfile_name = await scanner.get_dockerfile_content(scan_context)
+                if not content_result:
+                    return "Error: No Dockerfile content available"
+
+                # Type checking - ensure content is string
+                if not isinstance(content_result, str):
+                    return "Error: Invalid Dockerfile content format"
+
+                content = content_result  # Now we know it's a string
+
+                logger.info(f"Starting scan of {dockerfile_name or 'Dockerfile'}")
+
+                # Scan this Dockerfile
+                result = docker_scanner.scan_dockerfile(dockerfile_content=content)
+                packages_list = []
+                if result.get("packages"):
+                    packages_list = [(pkg["name"], pkg["version"]) for pkg in result["packages"]]
+                scan_source = dockerfile_name or "Dockerfile"
+
+            # Check vulnerabilities for all packages found
+            logger.info(f"Checking vulnerabilities for {len(packages_list)} packages")
+
+            vulnerable_packages = []
+            total_vulnerabilities = 0
+            severity_counts = {"CRITICAL": 0, "HIGH": 0, "MODERATE": 0, "LOW": 0, "UNKNOWN": 0}
+
+            for pkg_name, pkg_version in packages_list:
+                # Check package vulnerabilities
+                vulns = await _check_package(pkg_name, pkg_version or "")
+                if vulns:
+                    vulnerable_packages.append({
+                        "name": pkg_name,
+                        "version": pkg_version or "latest",
+                        "vulnerabilities": vulns
+                    })
+                    total_vulnerabilities += len(vulns)
+
+                    # Count by severity
+                    for vuln in vulns:
+                        severity = _get_severity(vuln)
+                        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+            # Format the results
+            lines = [
+                "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
+                "",
+                "# Dockerfile Vulnerability Scan Report",
+                f"Source: {scan_source}",
+                f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                f"Mode: {scan_mode.title()}",
+                "",
+                "## Summary",
+                f"- Total packages found: {len(packages_list)}",
+                f"- Vulnerable packages: {len(vulnerable_packages)}",
+                f"- Total vulnerabilities: {total_vulnerabilities}",
                 ""
-            ])
+            ]
 
-        # Dependencies found
-        if results['dependencies']:
-            lines.append("## Dependencies Found")
-            for package, version in sorted(results['dependencies'].items()):
-                version_str = version or "latest"
-                status = "⚠️" if package in results['vulnerable_packages'] else "✅"
-                lines.append(f"{status} {package} ({version_str})")
-            lines.append("")
+            # Add file breakdown for zip mode
+            if scan_mode == "zip" and 'dockerfile_summaries' in locals():
+                lines.append("### Dockerfile Breakdown")
+                for summary in dockerfile_summaries:
+                    lines.append(f"- {summary['file']}: {summary['packages']} packages")
 
-        # Referenced files
-        if results['referenced_files']:
-            lines.extend([
-                "## Referenced Dependency Files",
-                "The following dependency files are referenced in the Dockerfile:"
-            ])
-            for file in results['referenced_files']:
-                lines.append(f"- {file}")
-            lines.append("")
+            # Severity breakdown
+            if total_vulnerabilities > 0:
+                lines.extend([
+                    "",
+                    "## Severity Breakdown",
+                    f"- CRITICAL: {severity_counts['CRITICAL']}",
+                    f"- HIGH: {severity_counts['HIGH']}",
+                    f"- MODERATE: {severity_counts['MODERATE']}",
+                    f"- LOW: {severity_counts['LOW']}",
+                    f"- UNKNOWN: {severity_counts['UNKNOWN']}",
+                    ""
+                ])
 
-        # Vulnerability details
-        if results['vulnerabilities']:
-            lines.append("## Vulnerability Details")
+            # Dependencies found
+            if packages_list:
+                lines.append("## Dependencies Found")
+                vulnerable_pkg_names = [pkg["name"] for pkg in vulnerable_packages]
+                for pkg_name, pkg_version in sorted(packages_list):
+                    version_str = pkg_version or "latest"
+                    status = "⚠️" if pkg_name in vulnerable_pkg_names else "✅"
+                    lines.append(f"{status} {pkg_name} ({version_str})")
+                lines.append("")
 
-            # Group by package
-            by_package: dict[str, list[Any]] = {}
-            for vuln_info in results['vulnerabilities']:
-                package = vuln_info['package']
-                if package not in by_package:
-                    by_package[package] = []
-                by_package[package].append(vuln_info)
+            # Vulnerability details
+            if vulnerable_packages:
+                lines.append("## Vulnerability Details")
 
-            for package in sorted(by_package.keys()):
-                vulns = by_package[package]
-                lines.append(f"\n### {package} ({vulns[0]['installed_version']})")
+                for pkg_info in vulnerable_packages:
+                    lines.append(f"\n### {pkg_info['name']} ({pkg_info['version']})")
 
-                for vuln_info in vulns:
-                    vuln = vuln_info['vulnerability']
-                    lines.append(f"\n**{vuln.get('id', 'Unknown ID')}**")
-                    lines.append(f"- Severity: {vuln.get('severity', 'UNKNOWN')}")
+                    for vuln in pkg_info['vulnerabilities'][:5]:  # Limit to first 5 vulns per package
+                        lines.append(f"\n**{vuln.id}**")
+                        lines.append(f"- Severity: {_get_severity(vuln)}")
 
-                    if vuln.get('summary'):
-                        lines.append(f"- Summary: {vuln['summary']}")
+                        if vuln.summary:
+                            lines.append(f"- Summary: {vuln.summary}")
 
-                    if vuln.get('fixed_version'):
-                        lines.append(f"- Fixed in: {vuln['fixed_version']}")
+                        # Add CVE information if available
+                        if vuln.aliases:
+                            cve_ids = [alias for alias in vuln.aliases if alias.startswith("CVE-")]
+                            if cve_ids:
+                                lines.append(f"- CVE: {', '.join(cve_ids[:3])}")
 
-                    if vuln.get('cve_id'):
-                        lines.append(f"- CVE: {vuln['cve_id']}")
+                        # Add references
+                        if vuln.references:
+                            lines.append(f"- References: {vuln.references[0].get('url', 'N/A')}")
 
-                    if vuln.get('url'):
-                        lines.append(f"- Details: {vuln['url']}")
+                lines.append("")
 
-            lines.append("")
-
-        # Recommendations
-        if results['vulnerable_packages']:
-            lines.extend([
+            # Recommendations
+            if vulnerable_packages:
+                lines.extend([
                 "## Recommendations",
                 "1. Update vulnerable packages to their latest secure versions",
                 "2. Use specific version pinning instead of 'latest' tags",
-                "3. Regularly scan and update base images",
-                "4. Consider using multi-stage builds to minimize attack surface",
-                "5. Use tools like Docker Scout or Trivy for comprehensive container scanning"
-            ])
-        else:
+                    "3. Regularly scan and update base images",
+                    "4. Consider using multi-stage builds to minimize attack surface",
+                    "5. Use tools like Docker Scout or Trivy for comprehensive container security"
+                ])
+            else:
+                lines.extend([
+                    "## ✅ No Vulnerabilities Found",
+                    "",
+                    "No known vulnerabilities were detected in the Python dependencies.",
+                    "Remember to:",
+                    "- Keep dependencies updated",
+                    "- Use specific version pinning",
+                    "- Regularly rescan as new vulnerabilities are discovered"
+                ])
+
             lines.extend([
-                "## ✅ No Vulnerabilities Found",
                 "",
-                "No known vulnerabilities were detected in the Python dependencies.",
-                "Remember to:",
-                "- Keep dependencies updated",
-                "- Use specific version pinning",
-                "- Regularly rescan as new vulnerabilities are discovered"
+                "---",
+                "*Note: This scan only checks Python package vulnerabilities. For comprehensive container security, also scan base images and system packages.*"
             ])
 
-        lines.extend([
-            "",
-            "---",
-            "*Note: This scan only checks Python package vulnerabilities. For comprehensive container security, also scan base images and system packages.*"
-        ])
+            return "\n".join(lines)
 
-        return "\n".join(lines)
+    except UnifiedScannerError as e:
+        logger.error(f"Unified scanner error: {e}")
+        return f"Input error: {str(e)}\n\nPlease check:\n1. For zip input: Ensure the zip file is valid and base64 encoded\n2. For file input: Provide dockerfile_path OR dockerfile_content\n3. Use only one input method"
 
     except Exception as e:
         logger.error(f"Error scanning Dockerfile: {e}")
-        return f"""❌ **Error during Dockerfile scan**: {str(e)}
-
-Please ensure:
-1. The Dockerfile path is correct (if provided)
-2. You have read permissions for the file
-3. The Dockerfile content is valid"""
+        return f"❌ **Error during Dockerfile scan**: {str(e)}\n\nPlease ensure:\n1. The Dockerfile path is correct (if provided)\n2. You have read permissions for the file\n3. The Dockerfile content is valid"
 
 
 @mcp.tool
@@ -2339,6 +2606,7 @@ _comprehensive_sessions: dict[str, ComprehensiveSecurityCheck] = {}
 async def comprehensive_security_check(
     action: str,
     project_path: str = "",
+    zip_content: str = "",
     response: str = "",
     session_id: str = ""
 ) -> str:
@@ -2355,12 +2623,13 @@ async def comprehensive_security_check(
 
     Args:
         action: Action to perform: 'start' to begin a new check, 'continue' to continue an interactive session
-        project_path: Project path to check (only for 'start' action). Defaults to current directory.
+        project_path: Project path or GitHub URL to check (only for 'start' action). Defaults to current directory.
+        zip_content: Base64 encoded zip file to analyze (only for 'start' action, alternative to project_path)
         response: User response to continue the conversation (only for 'continue' action)
         session_id: Session ID from previous interaction (only for 'continue' action)
 
     Usage:
-    - First call: action='start' with optional project_path
+    - First call: action='start' with optional project_path OR zip_content
     - Subsequent calls: action='continue' with response and session_id
 
     The tool will guide you through an interactive conversation to understand
@@ -2401,12 +2670,42 @@ Without an LLM, you can still use individual security tools:
 
     try:
         if action == "start":
+            # Input validation
+            if project_path and zip_content:
+                return "Error: Cannot specify both project_path and zip_content. Please use either project_path OR zip_content."
+
             # Start new session
             _ensure_clients_initialized()
             checker = ComprehensiveSecurityCheck(github_scanner=github_scanner)
-            # Handle empty string as None
+
+            # Handle empty strings as None and prepare input
             path = project_path if project_path else None
-            result = await checker.start_conversation(path)
+            zip_data = zip_content if zip_content else None
+
+            # Start conversation with appropriate input
+            if zip_data:
+                # Extract zip to temporary directory and use as project path
+                from .core.zip_handler import get_zip_handler
+                zip_handler = get_zip_handler()
+
+                try:
+                    temp_path, extraction_id = await zip_handler.extract_zip(zip_data, "comprehensive_check")
+                    # Run the comprehensive check on extracted content
+                    result = await checker.start_conversation(str(temp_path))
+                    # Add zip mode indicator to result
+                    if "discovery" in result:
+                        result["discovery"]["input_mode"] = "zip"
+                    # Cleanup extraction afterwards
+                    await zip_handler.cleanup_extraction(temp_path, extraction_id)
+                except Exception as e:
+                    # Cleanup on error
+                    if 'temp_path' in locals() and 'extraction_id' in locals():
+                        import contextlib
+                        with contextlib.suppress(Exception):
+                            await zip_handler.cleanup_extraction(temp_path, extraction_id)
+                    return f"Error processing zip file: {str(e)}"
+            else:
+                result = await checker.start_conversation(path)
 
             # Store session if successful
             if "conversation_id" in result:
@@ -2418,8 +2717,14 @@ Without an LLM, you can still use individual security tools:
             lines = ["## 🔒 Comprehensive Security Check Started", ""]
 
             if "discovery" in result:
+                input_mode = result['discovery'].get('input_mode', 'filesystem')
+                source_info = f"Input mode: {input_mode.title()}"
+                if input_mode == "zip":
+                    source_info += " archive"
+
                 lines.extend([
                     "### Discovered Resources:",
+                    f"- {source_info}",
                     f"- Dependency files: {len(result['discovery']['dependency_files'])}",
                     f"- Dockerfiles: {len(result['discovery']['dockerfiles'])}",
                     f"- Python files: {result['discovery']['python_files_count']}",
