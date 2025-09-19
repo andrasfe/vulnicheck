@@ -256,7 +256,7 @@ class DependencyScannerWithProvider:
             for item in node.elts:
                 if isinstance(item, ast.Constant) and isinstance(item.value, str):
                     deps.append(self._parse_requirement(item.value))
-                elif isinstance(item, ast.Str):  # Python < 3.8 compatibility
+                elif isinstance(item, ast.Str) and isinstance(item.s, str):  # Python < 3.8 compatibility
                     deps.append(self._parse_requirement(item.s))
         elif isinstance(node, ast.Name):
             # install_requires = requirements (variable reference)

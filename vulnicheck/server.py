@@ -513,7 +513,7 @@ def _parse_dependency_content(content: str, file_name: str) -> list[tuple[str, s
                     for keyword in node.keywords:
                         if keyword.arg == "install_requires" and isinstance(keyword.value, ast.List):
                             for item in keyword.value.elts:
-                                if isinstance(item, ast.Str):
+                                if isinstance(item, ast.Str) and isinstance(item.s, str):
                                     try:
                                         req = Requirement(item.s)
                                         version_spec = str(req.specifier) if req.specifier else ""
