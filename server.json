@@ -1,29 +1,72 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
   "name": "io.github.andrasfe/vulnicheck",
-  "description": "An MCP server that provides [describe what your server does]",
+  "description": "HTTP MCP Server for comprehensive Python vulnerability scanning and security analysis.",
   "status": "active",
   "repository": {
     "url": "https://github.com/andrasfe/vulnicheck",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "0.1.0",
   "packages": [
     {
-      "registry_type": "pypi",
-      "registry_base_url": "https://pypi.org",
-      "identifier": "vulnicheck-mcp",
-      "version": "1.0.0",
+      "registry_type": "oci",
+      "registry_base_url": "https://docker.io",
+      "identifier": "andrasfe/vulnicheck",
+      "version": "main",
       "transport": {
-        "type": "stdio"
+        "type": "streamable-http",
+        "url": "http://localhost:3000/mcp"
       },
       "environment_variables": [
         {
-          "description": "Your API key for the service",
-          "is_required": true,
+          "description": "API key for NIST National Vulnerability Database (increases rate limit from 5 to 50 requests per 30 seconds)",
+          "is_required": false,
           "format": "string",
           "is_secret": true,
-          "name": "YOUR_API_KEY"
+          "name": "NVD_API_KEY"
+        },
+        {
+          "description": "GitHub token for Advisory Database access (increases rate limit to 5000 requests per hour)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "GITHUB_TOKEN"
+        },
+        {
+          "description": "OpenAI API key for LLM-based risk assessment in MCP passthrough operations",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "OPENAI_API_KEY"
+        },
+        {
+          "description": "Anthropic API key for LLM-based risk assessment (alternative to OpenAI)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "ANTHROPIC_API_KEY"
+        },
+        {
+          "description": "Port for MCP HTTP server (default: 3000)",
+          "is_required": false,
+          "format": "number",
+          "is_secret": false,
+          "name": "MCP_PORT"
+        },
+        {
+          "description": "Cache time-to-live in seconds for vulnerability data (default: 900)",
+          "is_required": false,
+          "format": "number",
+          "is_secret": false,
+          "name": "CACHE_TTL"
+        },
+        {
+          "description": "Enable HTTP-only mode with MCP client delegation (true/false, default: auto-detect)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": false,
+          "name": "VULNICHECK_HTTP_ONLY"
         }
       ]
     }

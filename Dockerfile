@@ -9,6 +9,9 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="VulniCheck"
 LABEL org.opencontainers.image.documentation="https://github.com/andrasfe/vulnicheck/blob/main/README.md"
 
+# MCP Registry annotation
+LABEL io.modelcontextprotocol.server.name="io.github.andrasfe/vulnicheck"
+
 # Build arguments for versioning
 ARG BUILDTIME
 ARG VERSION
