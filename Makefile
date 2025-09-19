@@ -45,7 +45,7 @@ test-clients: ## Run vulnerability client tests only
 
 .PHONY: test-coverage
 test-coverage: ## Run tests with coverage report
-	uv run pytest --cov=vulnicheck --cov-report=html --cov-report=term-missing tests/
+	uv run pytest --cov=vulnicheck --cov-report=html --cov-report=term-missing --cov-report=xml tests/
 
 .PHONY: lint
 lint: ## Run all linting checks (ruff, mypy)
