@@ -197,3 +197,8 @@ tests/integration/mcp_test_*.log
 # ruff
 .ruff_cache/
 .vulnicheck/
+
+# Add to .gitignore
+.mcpregistry_github_token
+.mcpregistry_registry_token
+
