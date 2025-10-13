@@ -38,9 +38,11 @@ RUN pip install --no-cache-dir -e .
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash vulnicheck
 
-# Create .vulnicheck directory with proper permissions
-RUN mkdir -p /home/vulnicheck/.vulnicheck && \
-    chown -R vulnicheck:vulnicheck /home/vulnicheck/.vulnicheck
+# Create .vulnicheck directory with proper permissions (for logs and tokens)
+RUN mkdir -p /home/vulnicheck/.vulnicheck/logs && \
+    mkdir -p /home/vulnicheck/.vulnicheck/tokens && \
+    chown -R vulnicheck:vulnicheck /home/vulnicheck/.vulnicheck && \
+    chmod 700 /home/vulnicheck/.vulnicheck/tokens
 
 USER vulnicheck
 
@@ -50,6 +52,14 @@ EXPOSE 3000
 # Set environment variables for HTTP mode
 ENV VULNICHECK_HTTP_ONLY=true
 ENV MCP_PORT=3000
+
+# Authentication environment variables (optional, override at runtime)
+# By default, authentication is disabled
+# To enable Google OAuth, set:
+#   - FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID
+#   - FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET
+#   - FASTMCP_SERVER_BASE_URL (e.g., https://your-domain.com)
+# And pass --auth-mode google to the server
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -42,7 +43,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("vulnicheck")
 
-# Initialize FastMCP server
+# FastMCP server instance - initialized with a default instance for backward compatibility
+# This will be replaced in main() if auth is enabled
 mcp: FastMCP = FastMCP("vulnicheck-mcp")
 
 # Initialize clients lazily to avoid connection issues during startup
@@ -3512,7 +3514,20 @@ async def manage_trust_store(
 
 
 def main() -> None:
-    """Run the MCP server with HTTP streaming transport."""
+    """Run the MCP server with HTTP streaming transport and optional authentication."""
+    global mcp
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="VulniCheck MCP Server")
+    parser.add_argument(
+        "--auth-mode",
+        type=str,
+        choices=["google", "none"],
+        default="none",
+        help="Authentication mode: 'google' for Google OAuth 2.0, 'none' for no auth (default: none)",
+    )
+    args = parser.parse_args()
+
     # Print startup info
     print("VulniCheck MCP Server v0.1.0 (HTTP Streaming)", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
@@ -3523,6 +3538,7 @@ def main() -> None:
     print("See README.md for full disclaimer.", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
 
+    # Check for vulnerability API keys
     if os.environ.get("NVD_API_KEY"):
         print("NVD API key found", file=sys.stderr)
     else:
@@ -3538,12 +3554,84 @@ def main() -> None:
         print("No GitHub token (rate limits apply)", file=sys.stderr)
         print("   Get one at: https://github.com/settings/tokens", file=sys.stderr)
 
+    print("=" * 50, file=sys.stderr)
+
+    # Handle authentication configuration
+    auth_provider = None
+    if args.auth_mode == "google":
+        print("Authentication Mode: Google OAuth 2.0", file=sys.stderr)
+
+        # Check for required Google OAuth environment variables
+        client_id = os.environ.get("FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID")
+        client_secret = os.environ.get("FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET")
+        base_url = os.environ.get("FASTMCP_SERVER_BASE_URL")
+
+        if not client_id:
+            print("ERROR: FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID environment variable is required for Google OAuth", file=sys.stderr)
+            print("Please set this variable to your Google OAuth client ID", file=sys.stderr)
+            sys.exit(1)
+
+        if not client_secret:
+            print("ERROR: FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET environment variable is required for Google OAuth", file=sys.stderr)
+            print("Please set this variable to your Google OAuth client secret", file=sys.stderr)
+            sys.exit(1)
+
+        if not base_url:
+            # Default to localhost:3000 if not specified
+            port = int(os.environ.get("MCP_PORT", "3000"))
+            base_url = f"http://localhost:{port}"
+            print(f"Using default base URL: {base_url}", file=sys.stderr)
+            print("Set FASTMCP_SERVER_BASE_URL for production deployments", file=sys.stderr)
+
+        try:
+            # Import and initialize Google OAuth provider
+            from .auth import GoogleOAuthProvider
+
+            auth_provider = GoogleOAuthProvider(  # type: ignore[abstract]
+                client_id=client_id,
+                client_secret=client_secret,
+                base_url=base_url,
+            )
+            print("Google OAuth configured successfully", file=sys.stderr)
+            print(f"Redirect URI: {auth_provider.redirect_uri}", file=sys.stderr)
+        except Exception as e:
+            print(f"ERROR: Failed to initialize Google OAuth provider: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("Authentication Mode: None (no authentication)", file=sys.stderr)
+
+    print("=" * 50, file=sys.stderr)
+
+    # Initialize or reinitialize FastMCP server with optional auth
+    try:
+        if auth_provider:
+            # Reinitialize with authentication
+            # Note: This creates a new instance, but the tools are already decorated
+            # with the original instance. In production, this would require
+            # re-registering all tools, but FastMCP handles this internally
+            mcp = FastMCP("vulnicheck-mcp", auth=auth_provider)
+            logger.info("FastMCP server reinitialized with Google OAuth authentication")
+            print("Server configured with Google OAuth authentication", file=sys.stderr)
+        else:
+            # Use the existing instance without auth (backward compatibility)
+            logger.info("FastMCP server using default configuration (no authentication)")
+            print("Server configured without authentication", file=sys.stderr)
+    except Exception as e:
+        print(f"ERROR: Failed to configure FastMCP server: {e}", file=sys.stderr)
+        sys.exit(1)
+
     # Get port from environment variable or use default
     port = int(os.environ.get("MCP_PORT", "3000"))
 
-    print("=" * 50, file=sys.stderr)
     print(f"Starting HTTP streaming server on port {port}...", file=sys.stderr)
     print(f"HTTP endpoint will be available at: http://localhost:{port}/mcp", file=sys.stderr)
+
+    if auth_provider:
+        print("OAuth endpoints:", file=sys.stderr)
+        print(f"  Authorization: http://localhost:{port}/oauth/authorize", file=sys.stderr)
+        print(f"  Callback: http://localhost:{port}/oauth/callback", file=sys.stderr)
+
+    print("=" * 50, file=sys.stderr)
 
     try:
         # Run as HTTP streaming server

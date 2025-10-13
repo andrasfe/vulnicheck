@@ -55,6 +55,7 @@ VulniCheck will:
 ## Key Features
 
 - **Docker Deployment**: Secure containerized deployment with HTTP streaming (no SSE/Server-Sent Events required)
+- **Optional Authentication**: Supports Google OAuth 2.0 for secure access control (disabled by default)
 - **Production Ready**: Scalable HTTP server architecture
 - **Comprehensive Coverage**: Queries 5+ vulnerability databases (OSV.dev, NVD, GitHub Advisory, CIRCL, Safety DB)
 - **GitHub Integration**: Scan any public/private GitHub repository directly (up to 1GB)
@@ -94,6 +95,42 @@ docker run -d --name vulnicheck-mcp -p 3000:3000 \
   andrasfe/vulnicheck:latest
 ```
 
+## Authentication (Optional)
+
+VulniCheck supports optional Google OAuth 2.0 authentication for secure access control. By default, authentication is **disabled**.
+
+### Enabling Google OAuth
+
+1. **Get Google OAuth Credentials**:
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a project and enable Google+ API
+   - Create OAuth 2.0 credentials (Web application)
+   - Add authorized redirect URI: `http://localhost:3000/oauth/callback` (or your domain)
+
+2. **Configure Environment Variables**:
+   ```bash
+   export FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+   export FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET="GOCSPX-your-secret-here"
+   export FASTMCP_SERVER_BASE_URL="http://localhost:3000"
+   ```
+
+3. **Run with Authentication**:
+   ```bash
+   docker run -d --name vulnicheck-mcp -p 3000:3000 \
+     --restart=unless-stopped \
+     -e FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID=your-client-id \
+     -e FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET=your-secret \
+     -e FASTMCP_SERVER_BASE_URL=http://localhost:3000 \
+     -v vulnicheck_tokens:/home/vulnicheck/.vulnicheck/tokens \
+     andrasfe/vulnicheck:latest \
+     python -m vulnicheck.server --auth-mode google
+   ```
+
+4. **Using docker-compose**:
+   See `docker-compose.auth-example.yml` for a complete configuration example.
+
+**Note**: OAuth tokens are persisted in `/home/vulnicheck/.vulnicheck/tokens`. Use a Docker volume to persist tokens across container restarts.
+
 ## Building from Source
 
 ```bash
@@ -104,8 +141,18 @@ cd vulnicheck
 # Build Docker image
 docker build -t vulnicheck .
 
-# Run locally built image
+# Run locally built image (no auth)
 docker run -d --name vulnicheck-mcp -p 3000:3000 --restart=unless-stopped vulnicheck
+
+# Run with Google OAuth
+docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  --restart=unless-stopped \
+  -e FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID=your-client-id \
+  -e FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET=your-secret \
+  -e FASTMCP_SERVER_BASE_URL=http://localhost:3000 \
+  -v vulnicheck_tokens:/home/vulnicheck/.vulnicheck/tokens \
+  vulnicheck \
+  python -m vulnicheck.server --auth-mode google
 ```
 
 ## Docker Hub

@@ -88,8 +88,15 @@ make debug
 # Or directly
 vulnicheck
 
+# Run with Google OAuth authentication
+vulnicheck --auth-mode google
+
 # Server will be available at http://localhost:3000
 # Use MCP_PORT environment variable to change port
+
+# Authentication modes:
+#   --auth-mode none    (default, no authentication)
+#   --auth-mode google  (requires OAuth credentials in environment)
 ```
 
 ### Docker Operations
@@ -100,11 +107,22 @@ vulnicheck
 # Build Docker images
 make docker-build
 
+# Run with Google OAuth authentication
+docker run -p 3000:3000 \
+  -e FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID="your-client-id" \
+  -e FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET="your-secret" \
+  -e FASTMCP_SERVER_BASE_URL="https://your-domain.com" \
+  -v vulnicheck_tokens:/home/vulnicheck/.vulnicheck/tokens \
+  andrasfe/vulnicheck:latest \
+  python -m vulnicheck.server --auth-mode google
+
 # View logs
 docker-compose logs -f
 
 # Stop service
 docker-compose down
+
+# See docker-compose.auth-example.yml for full configuration example
 ```
 
 ## Architecture
@@ -264,10 +282,20 @@ docker-compose down
 
 ## Environment Variables
 
+### Authentication
+- `FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID`: Google OAuth 2.0 client ID (required for `--auth-mode google`)
+- `FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET`: Google OAuth 2.0 client secret (required for `--auth-mode google`)
+- `FASTMCP_SERVER_BASE_URL`: Base URL for OAuth callbacks (default: `http://localhost:3000`)
+
+### Vulnerability Databases
 - `NVD_API_KEY`: API key for NVD (increases rate limit from 5 to 50 requests/30s)
 - `GITHUB_TOKEN`: GitHub token for Advisory Database (increases rate limit to 5000 requests/hour)
+
+### AI-Powered Features
 - `OPENAI_API_KEY`: OpenAI API key for LLM-based risk assessment in MCP passthrough
 - `ANTHROPIC_API_KEY`: Anthropic API key for LLM-based risk assessment (alternative to OpenAI)
+
+### Server Configuration
 - `MCP_PORT`: Port for MCP server (default: 3000)
 - `CACHE_TTL`: Cache time-to-live in seconds (default: 900)
 - `REQUEST_TIMEOUT`: API request timeout in seconds
@@ -368,6 +396,14 @@ For HTTP-only deployment, MCP clients must implement specific callback tools:
 
 ## Recent Improvements (2025)
 
+- **Optional Google OAuth 2.0 Authentication (January 2025)**:
+  - Added `--auth-mode` command line flag to enable/disable authentication
+  - Supports Google OAuth 2.0 using FastMCP's built-in GoogleProvider
+  - Authentication is completely optional (default: none/disabled)
+  - Environment variables: `FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID`, `FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET`, `FASTMCP_SERVER_BASE_URL`
+  - Docker support with persistent token storage in `/home/vulnicheck/.vulnicheck/tokens`
+  - Full backward compatibility - existing deployments work unchanged
+  - Example: `vulnicheck --auth-mode google` or `docker run ... andrasfe/vulnicheck --auth-mode google`
 - **Comprehensive Zip File Support (January 2025)**:
   - All scanning tools now accept base64-encoded zip files via `zip_content` parameter
   - Tools: `scan_dependencies`, `scan_for_secrets`, `scan_dockerfile`, `comprehensive_security_check`
@@ -470,6 +506,7 @@ For HTTP-only deployment, MCP clients must implement specific callback tools:
 
 - **VulniCheck runs exclusively in Docker containers** for production deployment with HTTP-only architecture
 - **Published to MCP Registry**: Available at https://registry.modelcontextprotocol.io as `io.github.andrasfe/vulnicheck`
+- **Optional Google OAuth Authentication**: Use `--auth-mode google` flag to enable; disabled by default for backward compatibility
 - **CI Configuration**: Single Python 3.11 environment matches Docker deployment; no need to test multiple versions
 - **Zip File Support**: All major scanning tools accept base64-encoded zip content for directory scanning
 - Always do testing and linting before commit (pre-commit hooks enforce this)

@@ -1,0 +1,71 @@
+version: '3.8'
+
+# Example docker-compose configuration for VulniCheck with Google OAuth authentication
+#
+# Usage:
+#   1. Copy this file to docker-compose.yml
+#   2. Create a .env file with your credentials (see .env.example)
+#   3. Run: docker-compose up -d
+#
+# For production deployment:
+#   - Use docker secrets or a secure vault for credentials
+#   - Set FASTMCP_SERVER_BASE_URL to your public URL
+#   - Use HTTPS with a reverse proxy (nginx, traefik, etc.)
+
+services:
+  vulnicheck:
+    image: andrasfe/vulnicheck:latest
+    container_name: vulnicheck-mcp
+    ports:
+      - "3000:3000"
+    environment:
+      # Server configuration
+      - MCP_PORT=3000
+
+      # Authentication mode: 'google' or 'none' (default: none)
+      # To enable auth, uncomment the line below and set to 'google'
+      # - AUTH_MODE=google
+
+      # Google OAuth credentials (required if AUTH_MODE=google)
+      # Get these from: https://console.cloud.google.com/
+      - FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+
+      # Base URL for OAuth callbacks
+      # For local development: http://localhost:3000
+      # For production: https://your-domain.com
+      - FASTMCP_SERVER_BASE_URL=${SERVER_BASE_URL:-http://localhost:3000}
+
+      # Optional: Vulnerability database API keys for higher rate limits
+      - NVD_API_KEY=${NVD_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+
+      # Optional: AI-powered risk assessment
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+    volumes:
+      # Persist OAuth tokens across container restarts
+      - vulnicheck_tokens:/home/vulnicheck/.vulnicheck/tokens
+
+      # Persist logs
+      - vulnicheck_logs:/home/vulnicheck/.vulnicheck/logs
+
+    # Custom command to enable Google OAuth
+    # Remove or comment out to use default (no auth)
+    # command: ["python", "-m", "vulnicheck.server", "--auth-mode", "google"]
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  vulnicheck_tokens:
+    driver: local
+  vulnicheck_logs:
+    driver: local
