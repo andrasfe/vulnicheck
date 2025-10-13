@@ -351,8 +351,29 @@ For HTTP-only deployment, MCP clients must implement specific callback tools:
   - Falls back to pattern matching only when LLM APIs are unavailable
 - Test order dependencies have been resolved to ensure consistent test results
 
+## Deployment and Distribution
+
+### Docker Hub
+- **Official Image**: `andrasfe/vulnicheck:latest` on Docker Hub
+- **MCP Registry**: Published to https://registry.modelcontextprotocol.io
+- **Required Label**: Dockerfile must include `LABEL io.modelcontextprotocol.server.name="io.github.andrasfe/vulnicheck"`
+- **Registry Configuration**: `server.json` configures OCI registry (docker.io) with streamable-http transport
+
+### CI/CD Pipeline
+- **Single Python Version**: Tests run on Python 3.11 only (matches Docker image)
+- **GitHub Actions**: Automated testing, linting, and Docker image building
+- **Dependency Management**: Uses `uv sync --extra dev` for consistent environments
+- **Coverage**: Generates XML coverage reports for codecov integration
+- **Docker Publishing**: Automatically publishes to Docker Hub on main branch commits
+
 ## Recent Improvements (2025)
 
+- **Comprehensive Zip File Support (January 2025)**:
+  - All scanning tools now accept base64-encoded zip files via `zip_content` parameter
+  - Tools: `scan_dependencies`, `scan_for_secrets`, `scan_dockerfile`, `comprehensive_security_check`
+  - Enables scanning of entire project directories in a single operation
+  - Automatic extraction and processing of all relevant files within zip archives
+  - Supports both file paths and zip content for maximum flexibility
 - **Added two new vulnerability databases** for comprehensive coverage:
   - CIRCL Vulnerability-Lookup API (aggregates data from multiple sources)
   - Safety DB (Python-specific vulnerabilities not always in CVE databases)
@@ -448,8 +469,11 @@ For HTTP-only deployment, MCP clients must implement specific callback tools:
 ## Memories
 
 - **VulniCheck runs exclusively in Docker containers** for production deployment with HTTP-only architecture
-- Always do testing and linting before commit
-- Never add claude as co-author
+- **Published to MCP Registry**: Available at https://registry.modelcontextprotocol.io as `io.github.andrasfe/vulnicheck`
+- **CI Configuration**: Single Python 3.11 environment matches Docker deployment; no need to test multiple versions
+- **Zip File Support**: All major scanning tools accept base64-encoded zip content for directory scanning
+- Always do testing and linting before commit (pre-commit hooks enforce this)
+- Never add claude as co-author unless explicitly requested
 - The uvx config file is stored at ~/.config/uv/uv.toml
 - **Recent major refactoring completed**: Unified MCP passthrough architecture with 40% code reduction and full backward compatibility
 - **Documentation consolidated**: Removed redundant .md files, information now integrated into codebase with inline documentation
