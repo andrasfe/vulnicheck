@@ -131,6 +131,87 @@ VulniCheck supports optional Google OAuth 2.0 authentication for secure access c
 
 **Note**: OAuth tokens are persisted in `/home/vulnicheck/.vulnicheck/tokens`. Use a Docker volume to persist tokens across container restarts.
 
+### ⚠️ Known OAuth Limitations
+
+**FastMCP OAuth + HTTP Transport Incompatibility**
+
+Due to a limitation in FastMCP 2.12.4, OAuth authentication **does not work properly** with HTTP transport (streamable-http). The authorization endpoints (`/oauth/authorize`, `/oauth/callback`) are not correctly mounted, resulting in 404 errors.
+
+**When OAuth Works:**
+- ✅ Local connections (when supported in future FastMCP versions)
+- ✅ OAuth discovery endpoint works (`/.well-known/oauth-protected-resource`)
+
+**When OAuth Does NOT Work:**
+- ❌ HTTP transport with external clients (ChatGPT, Claude Desktop, etc.)
+- ❌ Authorization endpoints return 404
+- ❌ Token exchange fails
+
+**Workaround for External Clients (ChatGPT, etc.):**
+
+Run VulniCheck **without authentication** when accessing through ngrok or other public URLs:
+
+```bash
+# Start without OAuth (recommended for external clients)
+docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  --restart=unless-stopped \
+  andrasfe/vulnicheck:latest
+
+# Then configure ngrok
+ngrok http 3000
+```
+
+In your MCP client (ChatGPT, etc.):
+- **URL**: `https://your-ngrok-url.ngrok-free.dev/mcp`
+- **Authentication**: None
+
+**Security Considerations:**
+- ✅ Traffic is encrypted via HTTPS (ngrok)
+- ⚠️ No authentication - anyone with URL can access
+- 💡 ngrok free URLs change on restart (security through obscurity)
+- 🔒 For production, use ngrok paid tier with password protection or IP whitelisting
+
+**Future Resolution:**
+This limitation will be resolved when:
+1. FastMCP fixes OAuth + HTTP transport support, OR
+2. Alternative authentication mechanisms are implemented
+
+### Using with ngrok
+
+**Quick Start (No OAuth):**
+
+```bash
+# 1. Start VulniCheck
+docker run -d --name vulnicheck-mcp -p 3000:3000 \
+  --restart=unless-stopped \
+  andrasfe/vulnicheck:latest
+
+# 2. Start ngrok
+ngrok http 3000
+
+# 3. Use the ngrok URL in your MCP client
+# URL: https://your-generated-url.ngrok-free.dev/mcp
+# Authentication: None
+```
+
+**Optional OAuth Script (Experimental - OAuth Not Functional):**
+
+A convenience script `restart-vulnicheck-ngrok.sh` is provided for testing OAuth, but **OAuth does not currently work** due to FastMCP limitations:
+
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and add your credentials
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-your-secret-here
+NGROK_URL=https://your-ngrok-url.ngrok-free.dev
+
+# Run the script (OAuth will not work)
+./restart-vulnicheck-ngrok.sh
+```
+
+**Note**: The script is provided for future use when FastMCP OAuth + HTTP transport is fixed. Currently, always run without OAuth for external clients.
+
 ## Building from Source
 
 ```bash

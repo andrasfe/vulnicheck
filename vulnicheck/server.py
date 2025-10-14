@@ -66,6 +66,10 @@ global_client_file_provider = None  # For client-delegated operations
 local_file_provider = None  # For server-side operations
 scanner_with_provider = None  # FileProvider-based scanner
 
+# URL detection for OAuth configuration validation
+detected_public_url = None  # Detected from request headers
+last_request_headers = None  # For debugging
+
 
 def _detect_deployment_mode() -> str:
     """
@@ -3513,6 +3517,124 @@ async def manage_trust_store(
     return await _manage_trust_store(action, server_name, config, description)
 
 
+@mcp.tool
+async def check_public_url() -> str:
+    """Check VulniCheck's detected public URL and compare with configuration.
+
+    This tool detects the public URL from HTTP request headers (useful when behind
+    ngrok or other reverse proxies) and compares it with the configured base URL.
+
+    USE THIS TOOL WHEN:
+    - You want to verify VulniCheck is accessible from the correct public URL
+    - You're using ngrok and want to confirm the tunnel URL is detected correctly
+    - You need to troubleshoot OAuth redirect URI mismatches
+    - You want to verify FASTMCP_SERVER_BASE_URL configuration
+
+    Returns:
+        A report showing detected URL, configured URL, and any warnings or recommendations.
+    """
+    from .core import compare_urls, detect_public_url_from_headers
+
+    global detected_public_url, last_request_headers
+
+    # Get configured URL
+    configured_url = os.environ.get("FASTMCP_SERVER_BASE_URL")
+
+    # If we have stored headers from a previous request, try to detect URL
+    if last_request_headers:
+        detected_public_url = detect_public_url_from_headers(last_request_headers)
+
+    # Compare URLs and generate report
+    comparison = compare_urls(detected_public_url, configured_url)
+
+    # Build formatted report
+    report_lines = []
+    report_lines.append("=" * 60)
+    report_lines.append("VulniCheck Public URL Check")
+    report_lines.append("=" * 60)
+    report_lines.append("")
+
+    if comparison["detected_url"]:
+        report_lines.append(f"✓ Detected Public URL: {comparison['detected_url']}")
+    else:
+        report_lines.append("✗ Could not detect public URL from request headers")
+        report_lines.append("  (This is the first request or headers are not available)")
+
+    report_lines.append("")
+
+    if comparison["configured_url"]:
+        report_lines.append(f"  Configured Base URL: {comparison['configured_url']}")
+        report_lines.append("  (from FASTMCP_SERVER_BASE_URL environment variable)")
+    else:
+        report_lines.append("  No configured base URL")
+        report_lines.append("  (FASTMCP_SERVER_BASE_URL not set)")
+
+    report_lines.append("")
+    report_lines.append("-" * 60)
+
+    if comparison["match"]:
+        report_lines.append("✓ Status: URLs MATCH - Configuration is correct")
+    elif comparison["warning"]:
+        report_lines.append(f"⚠ Warning: {comparison['warning']}")
+
+    if comparison["recommendation"]:
+        report_lines.append("")
+        report_lines.append("Recommendation:")
+        report_lines.append(comparison["recommendation"])
+
+    # Add OAuth-specific information if auth is enabled
+    auth_provider = getattr(mcp, 'auth', None)
+    if auth_provider and detected_public_url:
+        report_lines.append("")
+        report_lines.append("-" * 60)
+        report_lines.append("OAuth Configuration:")
+        report_lines.append(f"  Redirect URI should be: {detected_public_url}/oauth/callback")
+        report_lines.append(f"  Authorization URL: {detected_public_url}/oauth/authorize")
+        report_lines.append("")
+        report_lines.append("Update Google Cloud Console:")
+        report_lines.append("  1. Go to: https://console.cloud.google.com/apis/credentials")
+        report_lines.append("  2. Click on your OAuth 2.0 Client ID")
+        report_lines.append("  3. Add to Authorized redirect URIs:")
+        report_lines.append(f"     {detected_public_url}/oauth/callback")
+        report_lines.append("  4. Click SAVE")
+
+    report_lines.append("")
+    report_lines.append("=" * 60)
+
+    return "\n".join(report_lines)
+
+
+async def url_detection_middleware(request: Any, call_next: Any) -> Any:
+    """Middleware to capture request headers for URL detection."""
+    global detected_public_url, last_request_headers
+
+    # Extract headers (convert to dict for easier access)
+    headers = dict(request.headers) if hasattr(request, 'headers') else {}
+
+    # Store headers for URL detection
+    if headers:
+        from .core import detect_public_url_from_headers
+        last_request_headers = headers
+        detected_url = detect_public_url_from_headers(headers)
+
+        if detected_url and detected_url != detected_public_url:
+            detected_public_url = detected_url
+            logger.info(f"Detected public URL from headers: {detected_url}")
+
+            # Check if it matches configured URL
+            configured_url = os.environ.get("FASTMCP_SERVER_BASE_URL")
+            if configured_url and detected_url.rstrip("/") != configured_url.rstrip("/"):
+                logger.warning(
+                    f"Detected URL ({detected_url}) does not match "
+                    f"configured URL ({configured_url}). "
+                    "Consider updating FASTMCP_SERVER_BASE_URL."
+                )
+
+    # Continue with the request
+    response = await call_next(request)
+    return response
+
+
 def main() -> None:
     """Run the MCP server with HTTP streaming transport and optional authentication."""
     global mcp
@@ -3557,9 +3679,17 @@ def main() -> None:
     print("=" * 50, file=sys.stderr)
 
     # Handle authentication configuration
+    # KNOWN LIMITATION: FastMCP 2.12.4 OAuth does not work properly with HTTP transport.
+    # The authorization endpoints (/oauth/authorize, /oauth/callback) return 404 errors.
+    # OAuth discovery works (/.well-known/oauth-protected-resource) but token exchange fails.
+    # See: https://stackoverflow.com/questions/79709845/mcp-oauth-with-streamable-http
+    # For external HTTP clients (ChatGPT, etc.), run WITHOUT --auth-mode flag.
     auth_provider = None
     if args.auth_mode == "google":
         print("Authentication Mode: Google OAuth 2.0", file=sys.stderr)
+        print("⚠️  WARNING: OAuth with HTTP transport has known issues in FastMCP 2.12.4", file=sys.stderr)
+        print("   Authorization endpoints may return 404 errors", file=sys.stderr)
+        print("   For external clients, run without --auth-mode flag", file=sys.stderr)
 
         # Check for required Google OAuth environment variables
         client_id = os.environ.get("FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID")
@@ -3593,7 +3723,7 @@ def main() -> None:
                 base_url=base_url,
             )
             print("Google OAuth configured successfully", file=sys.stderr)
-            print(f"Redirect URI: {auth_provider.redirect_uri}", file=sys.stderr)
+            print(f"Redirect URI: {base_url.rstrip('/')}/auth/callback", file=sys.stderr)
         except Exception as e:
             print(f"ERROR: Failed to initialize Google OAuth provider: {e}", file=sys.stderr)
             sys.exit(1)
@@ -3602,18 +3732,32 @@ def main() -> None:
 
     print("=" * 50, file=sys.stderr)
 
-    # Initialize or reinitialize FastMCP server with optional auth
+    # Initialize or reinitialize FastMCP server with optional auth and middleware
     try:
+        # Note: FastMCP middleware is passed as raw functions, not Middleware objects
+        # The middleware function signature is: async def middleware(request, call_next) -> response
+
         if auth_provider:
-            # Reinitialize with authentication
+            # Reinitialize with authentication and middleware
             # Note: This creates a new instance, but the tools are already decorated
             # with the original instance. In production, this would require
             # re-registering all tools, but FastMCP handles this internally
-            mcp = FastMCP("vulnicheck-mcp", auth=auth_provider)
+            # Explicitly set streamable_http_path to ensure OAuth resource registration
+            mcp = FastMCP(
+                "vulnicheck-mcp",
+                auth=auth_provider,
+                middleware=[url_detection_middleware],  # type: ignore[list-item]
+                streamable_http_path="/mcp"
+            )
             logger.info("FastMCP server reinitialized with Google OAuth authentication")
             print("Server configured with Google OAuth authentication", file=sys.stderr)
         else:
-            # Use the existing instance without auth (backward compatibility)
+            # Reinitialize with middleware but no auth
+            mcp = FastMCP(
+                "vulnicheck-mcp",
+                middleware=[url_detection_middleware],  # type: ignore[list-item]
+                streamable_http_path="/mcp"
+            )
             logger.info("FastMCP server using default configuration (no authentication)")
             print("Server configured without authentication", file=sys.stderr)
     except Exception as e:

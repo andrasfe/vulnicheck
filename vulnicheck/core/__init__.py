@@ -10,6 +10,7 @@ from .mcp_paths import (
     get_mcp_paths_for_agent,
 )
 from .rate_limiter import APIRateLimiters, RateLimiter, get_nvd_rate_limiter
+from .url_detector import compare_urls, detect_public_url_from_headers
 
 __all__ = [
     "VulnerabilityCache",
@@ -23,4 +24,6 @@ __all__ = [
     "MCP_CONFIG_PATHS",
     "find_existing_mcp_configs",
     "check_mcp_exists_anywhere",
+    "detect_public_url_from_headers",
+    "compare_urls",
 ]

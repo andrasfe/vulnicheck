@@ -3,6 +3,8 @@
 import logging
 import os
 
+from fastmcp.server.auth.providers.google import GoogleProvider
+
 from .config import AuthConfig, GoogleAuthConfig
 from .google_oauth import GoogleOAuthProvider
 
@@ -46,12 +48,12 @@ class AuthenticationManager:
             )
         return AuthConfig()
 
-    def get_provider(self) -> GoogleOAuthProvider | None:
+    def get_provider(self) -> GoogleProvider | None:
         """
         Get the configured authentication provider.
 
         Returns:
-            GoogleOAuthProvider instance or None if auth is disabled
+            GoogleProvider instance or None if auth is disabled
 
         Raises:
             ValueError: If auth is enabled but configuration is invalid
