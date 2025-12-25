@@ -157,9 +157,11 @@ class TestLLMRiskAssessor:
                 "test_server", "test_tool", {}
             )
 
-        assert is_safe is True  # Fails open
-        assert risk_level is None
-        assert "Assessment error: API error" in explanation
+        # Fail-closed: returns False with UNKNOWN risk level for security
+        assert is_safe is False
+        assert risk_level == "UNKNOWN"
+        assert "Assessment failed: API error" in explanation
+        assert "manual review required" in explanation
 
     @pytest.mark.asyncio
     async def test_parse_assessment_response(self):

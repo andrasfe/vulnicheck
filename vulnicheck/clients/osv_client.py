@@ -70,6 +70,19 @@ class OSVClient:
     async def query_package_async(
         self, package_name: str, version: str | None = None, ecosystem: str = "PyPI"
     ) -> list[Vulnerability]:
+        """Asynchronously query OSV.dev for vulnerabilities affecting a package.
+
+        Args:
+            package_name: Name of the package to check.
+            version: Specific version to check (optional).
+            ecosystem: Package ecosystem (default "PyPI").
+
+        Returns:
+            List of Vulnerability objects affecting the package.
+
+        Raises:
+            httpx.HTTPStatusError: For HTTP errors.
+        """
         async with httpx.AsyncClient(timeout=self.client.timeout) as client:
             payload: dict[str, Any] = {
                 "package": {"name": package_name, "ecosystem": ecosystem}
@@ -92,6 +105,19 @@ class OSVClient:
     def query_package(
         self, package_name: str, version: str | None = None, ecosystem: str = "PyPI"
     ) -> list[Vulnerability]:
+        """Query OSV.dev for vulnerabilities affecting a package.
+
+        Args:
+            package_name: Name of the package to check.
+            version: Specific version to check (optional).
+            ecosystem: Package ecosystem (default "PyPI").
+
+        Returns:
+            List of Vulnerability objects affecting the package.
+
+        Raises:
+            httpx.HTTPStatusError: For HTTP errors.
+        """
         payload: dict[str, Any] = {
             "package": {"name": package_name, "ecosystem": ecosystem}
         }
@@ -117,6 +143,17 @@ class OSVClient:
         return await self.query_package_async(package_name, version, ecosystem)
 
     def get_vulnerability_by_id(self, vuln_id: str) -> Vulnerability | None:
+        """Fetch detailed information about a specific vulnerability.
+
+        Args:
+            vuln_id: The OSV vulnerability ID (e.g., "GHSA-xxx" or "PYSEC-xxx").
+
+        Returns:
+            Vulnerability object with full details, or None if not found.
+
+        Raises:
+            httpx.HTTPStatusError: For non-404 HTTP errors.
+        """
         response = self.client.get(f"{self.BASE_URL}/vulns/{vuln_id}")
         if response.status_code == 404:
             return None
@@ -125,6 +162,17 @@ class OSVClient:
         return Vulnerability(**response.json())
 
     def batch_query(self, queries: list[dict[str, Any]]) -> list[list[Vulnerability]]:
+        """Query multiple packages in a single API request.
+
+        Args:
+            queries: List of query dicts, each with 'package' and optional 'version'.
+
+        Returns:
+            List of vulnerability lists, one per query in the same order.
+
+        Raises:
+            httpx.HTTPStatusError: For HTTP errors.
+        """
         payload = {"queries": queries}
         response = self.client.post(f"{self.BASE_URL}/querybatch", json=payload)
         response.raise_for_status()
@@ -144,6 +192,16 @@ class OSVClient:
     def is_version_affected(
         self, vuln: Vulnerability, package_name: str, version: str
     ) -> bool:
+        """Check if a specific package version is affected by a vulnerability.
+
+        Args:
+            vuln: The Vulnerability object to check against.
+            package_name: Name of the package.
+            version: Version string to check.
+
+        Returns:
+            True if the version is affected, False otherwise.
+        """
         try:
             test_version = Version(version)
         except InvalidVersion:

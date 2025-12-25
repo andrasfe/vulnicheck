@@ -76,7 +76,7 @@ class AuthenticationManager:
 
             logger.info(f"Initializing Google OAuth with base URL: {self.config.base_url}")
 
-            return GoogleOAuthProvider(  # type: ignore[abstract]
+            return GoogleOAuthProvider(
                 client_id=self.config.client_id,
                 client_secret=self.config.client_secret,
                 base_url=self.config.base_url,

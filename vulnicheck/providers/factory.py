@@ -68,7 +68,7 @@ class FileProviderManager:
         if cache_key not in self._mcp_providers:
             self._mcp_providers[cache_key] = MCPClientFileProvider(
                 server_name=server_name,
-                client=client,
+                connection=client,
                 timeout=timeout
             )
             logger.debug(f"Created MCPClientFileProvider for server={server_name}")
@@ -157,7 +157,7 @@ def create_mcp_provider(
     """
     return MCPClientFileProvider(
         server_name=server_name,
-        client=client,
+        connection=client,
         timeout=timeout
     )
 
