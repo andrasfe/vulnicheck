@@ -5,6 +5,7 @@ These tests use unittest.mock to mock GitHub API responses, allowing them to run
 reliably in CI without requiring GITHUB_TOKEN credentials.
 """
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -86,7 +87,7 @@ MOCK_ADVISORY_REST = {
 }
 
 # Pre-recorded response for non-existent package
-MOCK_EMPTY_SEARCH = {
+MOCK_EMPTY_SEARCH: dict[str, Any] = {
     "data": {
         "securityVulnerabilities": {
             "nodes": []

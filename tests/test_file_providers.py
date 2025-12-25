@@ -325,7 +325,7 @@ class TestMCPClientFileProvider(TestFileProviderBase):
         """Provide MCPClientFileProvider instance."""
         return MCPClientFileProvider(
             server_name="test_server",
-            client=mock_client,
+            mcp_client=mock_client,
             timeout=10
         )
 
