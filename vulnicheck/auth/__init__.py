@@ -4,11 +4,13 @@ This module provides optional authentication support for the VulniCheck MCP serv
 Authentication is disabled by default and only loaded when explicitly enabled.
 """
 
+from typing import Any
+
 from .config import AuthConfig, GoogleAuthConfig
 from .manager import AuthenticationManager
 
 
-def GoogleOAuthProvider(*args, **kwargs):
+def GoogleOAuthProvider(*args: Any, **kwargs: Any) -> Any:
     """Lazy loader for GoogleOAuthProvider to avoid importing FastMCP auth at startup."""
     from .google_oauth import GoogleOAuthProvider as _GoogleOAuthProvider
 

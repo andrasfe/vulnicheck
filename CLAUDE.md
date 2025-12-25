@@ -262,6 +262,7 @@ docker-compose down
 ### Key Implementation Details
 
 - All clients are initialized lazily to avoid connection issues at startup
+- **Authentication modules use lazy imports** - FastMCP auth is only loaded when `--auth-mode google` is specified, ensuring the server works without auth configuration by default
 - Extensive caching using `@lru_cache` to minimize API calls
 - Comprehensive error handling and fallback mechanisms
 - Security-focused with file size limits and path validation
