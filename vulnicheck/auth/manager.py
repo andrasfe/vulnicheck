@@ -1,12 +1,15 @@
 """Authentication manager for VulniCheck MCP server."""
 
+from __future__ import annotations
+
 import logging
 import os
-
-from fastmcp.server.auth.providers.google import GoogleProvider
+from typing import TYPE_CHECKING, Any
 
 from .config import AuthConfig, GoogleAuthConfig
-from .google_oauth import GoogleOAuthProvider
+
+if TYPE_CHECKING:
+    from fastmcp.server.auth.providers.google import GoogleProvider
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,9 @@ class AuthenticationManager:
                 )
 
             logger.info(f"Initializing Google OAuth with base URL: {self.config.base_url}")
+
+            # Lazy import to avoid loading auth modules when not needed
+            from .google_oauth import GoogleOAuthProvider
 
             return GoogleOAuthProvider(
                 client_id=self.config.client_id,
