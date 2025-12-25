@@ -40,6 +40,12 @@ class CVEDetail(BaseModel):
 
     @property
     def description(self) -> str:
+        """Get the English description of the CVE.
+
+        Returns:
+            The English language description, or the first available
+            description if English is not available, or empty string if none.
+        """
         for desc in self.descriptions:
             if desc.lang == "en":
                 return desc.value
@@ -47,6 +53,13 @@ class CVEDetail(BaseModel):
 
     @property
     def cvss_v3(self) -> CVSSData | None:
+        """Get CVSS v3.x score data for this CVE.
+
+        Prefers CVSS v3.1 over v3.0 if both are available.
+
+        Returns:
+            CVSSData object with score details, or None if no v3.x data available.
+        """
         cvss_v31 = self.metrics.get("cvssMetricV31", [])
         if cvss_v31 and len(cvss_v31) > 0:
             cvss_data = cvss_v31[0].get("cvssData", {})
@@ -61,6 +74,11 @@ class CVEDetail(BaseModel):
 
     @property
     def cvss_v2(self) -> CVSSData | None:
+        """Get CVSS v2.0 score data for this CVE.
+
+        Returns:
+            CVSSData object with score details, or None if no v2 data available.
+        """
         cvss_v2 = self.metrics.get("cvssMetricV2", [])
         if cvss_v2 and len(cvss_v2) > 0:
             cvss_data = cvss_v2[0].get("cvssData", {})
@@ -69,6 +87,13 @@ class CVEDetail(BaseModel):
 
     @property
     def severity(self) -> str:
+        """Get the severity rating for this CVE.
+
+        Uses CVSS v3.x severity if available, otherwise calculates from v2 score.
+
+        Returns:
+            Severity string: CRITICAL, HIGH, MEDIUM, LOW, or UNKNOWN.
+        """
         if self.cvss_v3 and self.cvss_v3.baseSeverity:
             return self.cvss_v3.baseSeverity
         elif self.cvss_v2:
@@ -85,6 +110,13 @@ class CVEDetail(BaseModel):
 
     @property
     def score(self) -> float:
+        """Get the numeric CVSS base score for this CVE.
+
+        Prefers CVSS v3.x score over v2 if available.
+
+        Returns:
+            Base score as float (0.0-10.0), or 0.0 if no score available.
+        """
         if self.cvss_v3:
             return self.cvss_v3.baseScore
         elif self.cvss_v2:
@@ -136,6 +168,17 @@ class NVDClient:
         self.client.close()
 
     def get_cve(self, cve_id: str) -> CVEDetail | None:
+        """Fetch detailed information about a specific CVE.
+
+        Args:
+            cve_id: The CVE identifier (e.g., "CVE-2021-44228").
+
+        Returns:
+            CVEDetail object with vulnerability data, or None if not found.
+
+        Raises:
+            httpx.HTTPStatusError: For non-404 HTTP errors.
+        """
         try:
             # Apply rate limiting
             self.rate_limiter.wait_if_needed()
@@ -157,6 +200,17 @@ class NVDClient:
             raise
 
     async def get_cve_async(self, cve_id: str) -> CVEDetail | None:
+        """Asynchronously fetch detailed information about a specific CVE.
+
+        Args:
+            cve_id: The CVE identifier (e.g., "CVE-2021-44228").
+
+        Returns:
+            CVEDetail object with vulnerability data, or None if not found.
+
+        Raises:
+            httpx.HTTPStatusError: For non-404 HTTP errors.
+        """
         # Apply rate limiting
         self.rate_limiter.wait_if_needed()
 
@@ -188,6 +242,20 @@ class NVDClient:
         results_per_page: int = 20,
         start_index: int = 0,
     ) -> list[CVEDetail]:
+        """Search for CVEs matching specified criteria.
+
+        Args:
+            keyword: Text to search in CVE descriptions.
+            cvss_v3_severity: Filter by severity (CRITICAL, HIGH, MEDIUM, LOW).
+            results_per_page: Number of results per page (default 20).
+            start_index: Pagination offset (default 0).
+
+        Returns:
+            List of CVEDetail objects matching the search criteria.
+
+        Raises:
+            httpx.HTTPStatusError: For HTTP errors.
+        """
         params: dict[str, Any] = {
             "resultsPerPage": results_per_page,
             "startIndex": start_index,
@@ -215,6 +283,16 @@ class NVDClient:
         return cves
 
     def get_cve_metrics(self, cve_id: str) -> dict[str, Any]:
+        """Get a summary dictionary of CVE metrics for easy consumption.
+
+        Args:
+            cve_id: The CVE identifier (e.g., "CVE-2021-44228").
+
+        Returns:
+            Dictionary containing cve_id, description, severity, score,
+            published/last_modified dates, and CVSS v2/v3 details.
+            Returns empty dict if CVE not found.
+        """
         cve = self.get_cve(cve_id)
         if not cve:
             return {}

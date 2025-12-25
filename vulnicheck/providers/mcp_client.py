@@ -9,7 +9,8 @@ delegated to the client.
 import logging
 from typing import Any
 
-from ..mcp.mcp_client import MCPConnection
+from ..mcp.mcp_client import MCPClient, MCPConnection
+from ..mcp.mcp_config_cache import MCPServerConfig
 from .base import FileNotFoundError as BaseFileNotFoundError
 from .base import (
     FileProvider,
@@ -22,6 +23,21 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Global MCP client for connection pooling
+_mcp_client: MCPClient | None = None
+
+
+def get_mcp_client() -> MCPClient:
+    """Get or create the global MCP client for connection pooling.
+
+    Returns:
+        The global MCPClient instance
+    """
+    global _mcp_client
+    if _mcp_client is None:
+        _mcp_client = MCPClient()
+    return _mcp_client
 
 
 class MCPClientFileProvider(FileProvider):
@@ -48,31 +64,75 @@ class MCPClientFileProvider(FileProvider):
     def __init__(
         self,
         server_name: str,
-        client: MCPConnection | None = None,
+        connection: MCPConnection | None = None,
+        mcp_client: MCPClient | None = None,
+        server_config: MCPServerConfig | None = None,
         timeout: int = 30
     ):
         """
         Initialize MCP client file provider.
 
+        The provider can be initialized in three ways:
+        1. With an existing MCPConnection (direct use)
+        2. With an MCPClient and server_config (lazy connection)
+        3. With just server_name and server_config (uses global MCPClient)
+
         Args:
             server_name: Name of the MCP server to connect to
-            client: Optional existing MCPClient instance
+            connection: Optional existing MCPConnection instance
+            mcp_client: Optional MCPClient for connection pooling
+            server_config: Server configuration for lazy connection
             timeout: Timeout for MCP operations in seconds
         """
         self.server_name = server_name
-        self.client = client
+        self._connection = connection
+        self._mcp_client = mcp_client
+        self._server_config = server_config
         self.timeout = timeout
-        self._client_initialized = False
+        self._connection_initialized = False
 
     async def _ensure_client(self) -> MCPConnection:
-        """Ensure MCP client is initialized."""
-        if self.client is None:
-            # In a real implementation, this would get the client from
-            # a connection pool or factory
-            raise UnsupportedOperationError(
-                "MCPConnection must be provided during initialization"
-            )
-        return self.client
+        """Ensure MCP connection is initialized.
+
+        Returns:
+            The active MCPConnection
+
+        Raises:
+            UnsupportedOperationError: If no connection can be established
+        """
+        # Return existing connection if available
+        if self._connection is not None:
+            return self._connection
+
+        # Try to get or create connection via MCPClient
+        mcp_client = self._mcp_client or get_mcp_client()
+
+        # Check if connection already exists
+        existing = await mcp_client.get_connection(self.server_name)
+        if existing is not None:
+            self._connection = existing
+            return self._connection
+
+        # Create new connection if we have config
+        if self._server_config is not None:
+            try:
+                self._connection = await mcp_client.connect(
+                    self.server_name, self._server_config
+                )
+                self._connection_initialized = True
+                return self._connection
+            except Exception as e:
+                raise FileProviderError(
+                    f"Failed to connect to MCP server '{self.server_name}': {e}"
+                ) from e
+
+        # No way to establish connection
+        raise UnsupportedOperationError(
+            f"Cannot connect to MCP server '{self.server_name}': "
+            "No connection, MCPClient, or server configuration provided. "
+            "Initialize MCPClientFileProvider with either a connection, "
+            "or provide server_config for lazy connection."
+        )
 
     async def _call_tool(
         self,
@@ -336,4 +396,38 @@ class MCPClientFileProvider(FileProvider):
 
     def __repr__(self) -> str:
         """String representation of the provider."""
-        return f"MCPClientFileProvider(server={self.server_name}, timeout={self.timeout})"
+        connected = self._connection is not None
+        return f"MCPClientFileProvider(server={self.server_name}, timeout={self.timeout}, connected={connected})"
+
+
+def create_mcp_file_provider(
+    server_name: str,
+    server_url: str,
+    timeout: int = 30
+) -> MCPClientFileProvider:
+    """Factory function to create an MCPClientFileProvider with HTTP config.
+
+    This is a convenience function that creates a provider with the necessary
+    configuration for lazy connection to an HTTP-based MCP server.
+
+    Args:
+        server_name: Name to identify this MCP server
+        server_url: HTTP URL of the MCP server
+        timeout: Timeout for MCP operations in seconds
+
+    Returns:
+        Configured MCPClientFileProvider instance
+
+    Example:
+        provider = create_mcp_file_provider("files", "http://localhost:8080")
+        content = await provider.read_file("/path/to/file.txt")
+    """
+    config = MCPServerConfig(
+        transport="http",
+        url=server_url
+    )
+    return MCPClientFileProvider(
+        server_name=server_name,
+        server_config=config,
+        timeout=timeout
+    )

@@ -50,6 +50,11 @@ class GitHubAdvisory(BaseModel):
 
     @property
     def affected_packages(self) -> list[GitHubAffected]:
+        """Get list of affected Python packages from this advisory.
+
+        Returns:
+            List of GitHubAffected objects for pip ecosystem packages only.
+        """
         affected = []
         for vuln in self.vulnerabilities:
             package = vuln.get("package", {})
@@ -92,6 +97,19 @@ class GitHubClient:
     async def search_advisories_async(
         self, package_name: str, version: str | None = None, ecosystem: str = "pip"
     ) -> list[GitHubAdvisory]:
+        """Asynchronously search GitHub Advisory Database for package vulnerabilities.
+
+        Args:
+            package_name: Name of the package to check.
+            version: Specific version to filter results (optional).
+            ecosystem: Package ecosystem (default "pip").
+
+        Returns:
+            List of GitHubAdvisory objects matching the criteria.
+
+        Raises:
+            httpx.HTTPStatusError: For HTTP errors.
+        """
         async with httpx.AsyncClient(
             timeout=self.client.timeout, headers=self.headers
         ) as client:
@@ -249,6 +267,19 @@ class GitHubClient:
     def search_advisories(
         self, package_name: str, version: str | None = None, ecosystem: str = "pip"
     ) -> list[GitHubAdvisory]:
+        """Search GitHub Advisory Database for package vulnerabilities.
+
+        Args:
+            package_name: Name of the package to check.
+            version: Specific version to filter results (optional).
+            ecosystem: Package ecosystem (default "pip").
+
+        Returns:
+            List of GitHubAdvisory objects matching the criteria.
+
+        Raises:
+            httpx.HTTPStatusError: For HTTP errors.
+        """
         # GitHub Advisory Database uses GraphQL API
         query = """
         query($ecosystem: SecurityAdvisoryEcosystem!, $package: String!) {
@@ -390,6 +421,17 @@ class GitHubClient:
         return list(advisory_map.values())
 
     async def get_advisory_by_id_async(self, ghsa_id: str) -> GitHubAdvisory | None:
+        """Asynchronously fetch a specific GitHub security advisory by ID.
+
+        Args:
+            ghsa_id: The GHSA identifier (e.g., "GHSA-xxx-xxx-xxx").
+
+        Returns:
+            GitHubAdvisory object with full details, or None if not found.
+
+        Raises:
+            httpx.HTTPStatusError: For non-404 HTTP errors.
+        """
         async with httpx.AsyncClient(
             timeout=self.client.timeout, headers=self.headers
         ) as client:
@@ -403,6 +445,17 @@ class GitHubClient:
             return self._parse_rest_advisory(data)
 
     def get_advisory_by_id(self, ghsa_id: str) -> GitHubAdvisory | None:
+        """Fetch a specific GitHub security advisory by ID.
+
+        Args:
+            ghsa_id: The GHSA identifier (e.g., "GHSA-xxx-xxx-xxx").
+
+        Returns:
+            GitHubAdvisory object with full details, or None if not found.
+
+        Raises:
+            httpx.HTTPStatusError: For non-404 HTTP errors.
+        """
         # Use REST API for getting specific advisory
         response = self.client.get(f"{self.BASE_URL}/advisories/{ghsa_id}")
         if response.status_code == 404:

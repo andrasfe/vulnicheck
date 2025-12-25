@@ -325,7 +325,7 @@ class TestMCPClientFileProvider(TestFileProviderBase):
         """Provide MCPClientFileProvider instance."""
         return MCPClientFileProvider(
             server_name="test_server",
-            client=mock_client,
+            mcp_client=mock_client,
             timeout=10
         )
 
@@ -605,7 +605,7 @@ class TestFileProviderIntegration:
             mock_client = AsyncMock()
             mock_client.call_tool.return_value = test_content
 
-            mcp_provider = MCPClientFileProvider("test_server", client=mock_client)
+            mcp_provider = MCPClientFileProvider("test_server", connection=mock_client)
             content2 = await mcp_provider.read_file(str(test_file))
             assert content2 == test_content
 

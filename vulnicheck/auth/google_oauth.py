@@ -32,7 +32,7 @@ def GoogleOAuthProvider(
     # Get credentials from environment if not provided
     client_id = client_id or os.environ.get("FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID")
     client_secret = client_secret or os.environ.get("FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET")
-    base_url = base_url or os.environ.get("FASTMCP_SERVER_BASE_URL", "http://localhost:3000")
+    resolved_base_url: str = base_url or os.environ.get("FASTMCP_SERVER_BASE_URL") or "http://localhost:3000"
 
     if not client_id:
         raise ValueError(
@@ -54,6 +54,6 @@ def GoogleOAuthProvider(
     return GoogleProvider(
         client_id=client_id,
         client_secret=client_secret,
-        base_url=base_url,
+        base_url=resolved_base_url,
         required_scopes=required_scopes,
     )
