@@ -73,7 +73,7 @@ class DependencyScanner:
             actual_version = lock_versions.get(pkg_name.lower())
             if actual_version:
                 # Check the actual installed version
-                vulns = await self._check_exact_version(pkg_name, actual_version)
+                vulns = await self.check_exact_version(pkg_name, actual_version)
                 results[f"{pkg_name}=={actual_version}"] = vulns
             else:
                 # Fall back to version spec checking
@@ -304,7 +304,7 @@ class DependencyScanner:
 
         return lock_versions
 
-    async def _check_exact_version(self, name: str, version: str) -> list[Any]:
+    async def check_exact_version(self, name: str, version: str) -> list[Any]:
         """Check if a specific version of a package has vulnerabilities."""
         vulns = await self.osv_client.check_package(name, version)
 
@@ -427,7 +427,7 @@ class DependencyScanner:
             name = dist.name
             version = dist.version
             if name and version:
-                vulns = await self._check_exact_version(name, version)
+                vulns = await self.check_exact_version(name, version)
                 if vulns:
                     results[f"{name}=={version}"] = vulns
         return results

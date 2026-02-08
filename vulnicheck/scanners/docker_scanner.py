@@ -142,7 +142,7 @@ class DockerScanner:
         severity_summary: dict[str, int] = {
             "CRITICAL": 0,
             "HIGH": 0,
-            "MODERATE": 0,
+            "MEDIUM": 0,
             "LOW": 0,
             "UNKNOWN": 0
         }
@@ -390,7 +390,7 @@ class DockerScanner:
         severity_summary: dict[str, int] = {
             "CRITICAL": 0,
             "HIGH": 0,
-            "MODERATE": 0,
+            "MEDIUM": 0,
             "LOW": 0,
             "UNKNOWN": 0
         }

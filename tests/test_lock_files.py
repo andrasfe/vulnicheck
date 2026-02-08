@@ -132,7 +132,7 @@ certifi==2024.2.2
 
         # Mock _check_package to avoid actual API calls
         scanner._check_package = AsyncMock(return_value=[])
-        scanner._check_exact_version = AsyncMock(return_value=[])
+        scanner.check_exact_version = AsyncMock(return_value=[])
 
         results = await scanner.scan_file(str(pyproject))
 

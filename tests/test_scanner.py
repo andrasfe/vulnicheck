@@ -330,7 +330,7 @@ package5 = {git = "https://github.com/test/repo.git"}
                 return [mock_vuln]
             return []
 
-        scanner._check_exact_version = mock_check_exact
+        scanner.check_exact_version = mock_check_exact
 
         with patch("importlib.metadata.distributions") as mock_distributions:
             mock_distributions.return_value = [mock_dist1, mock_dist2]

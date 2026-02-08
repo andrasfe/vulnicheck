@@ -10,6 +10,7 @@ from typing import Annotated, Any, cast
 from fastmcp import FastMCP
 from pydantic import Field
 
+from . import __version__ as VULNICHECK_VERSION
 from .clients import CIRCLClient, GitHubClient, NVDClient, OSVClient, SafetyDBClient
 from .clients.osv_client import Vulnerability
 from .core import get_mcp_paths_for_agent
@@ -70,6 +71,20 @@ scanner_with_provider = None  # FileProvider-based scanner
 # URL detection for OAuth configuration validation
 detected_public_url = None  # Detected from request headers
 last_request_headers = None  # For debugging
+
+
+def _format_error(tool_name: str, error: str | Exception, guidance: str | None = None) -> str:
+    """Format error messages consistently across all tools."""
+    error_msg = str(error)
+    lines = [f"[ERROR] {tool_name}: {error_msg}"]
+    if guidance:
+        lines.extend(["", guidance])
+    return "\n".join(lines)
+
+
+def _disclaimer() -> str:
+    """Return the standard vulnerability data disclaimer with version."""
+    return f"⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty. (VulniCheck v{VULNICHECK_VERSION})"
 
 
 def _detect_deployment_mode() -> str:
@@ -238,7 +253,7 @@ def _get_severity(vuln: Any) -> str:
 def _format_osv_vulnerability(vuln: Any) -> str:
     """Format OSV vulnerability data for display."""
     lines = [
-        "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
+        _disclaimer(),
         "",
         f"# {vuln.id}",
         "",
@@ -374,11 +389,11 @@ async def check_package_vulnerabilities(
             logger.debug(f"GitHub API error: {e}")
 
         if not vulns:
-            return f"⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.\n\nNo vulnerabilities found for {package_name}{f' v{version}' if version else ''}"
+            return f"{_disclaimer()}\n\nNo vulnerabilities found for {package_name}{f' v{version}' if version else ''}"
 
         # Build report
         lines = [
-            "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
+            _disclaimer(),
             "",
             f"# Security Report: {package_name}",
             f"Version: {version or 'all'}",
@@ -468,7 +483,7 @@ async def check_package_vulnerabilities(
 
     except Exception as e:
         logger.error(f"Error checking {package_name}: {e}")
-        return f"Error: {str(e)}"
+        return _format_error("check_package_vulnerabilities", e)
 
 
 def _parse_dependency_content(content: str, file_name: str) -> list[tuple[str, str]]:
@@ -552,16 +567,27 @@ def _parse_dependency_content(content: str, file_name: str) -> list[tuple[str, s
 
 
 async def _check_package(package_name: str, version_spec: str) -> list[Any]:
-    """Check a package for vulnerabilities."""
+    """Check a package for vulnerabilities.
+
+    If a version specifier is provided (e.g., '==2.31.0', '>=1.0,<2.0'),
+    extracts the pinned version for exact matching or queries all versions
+    for range specifiers.
+    """
     _ensure_clients_initialized()
     if osv_client is None:
         raise RuntimeError("OSV client not initialized")
 
-    # For now, just check latest version if no version specified
     if not version_spec:
         return osv_client.query_package(package_name, None)
-    else:
-        # For version specs, check the latest version that matches
+
+    from packaging.specifiers import SpecifierSet
+    try:
+        spec_set = SpecifierSet(version_spec)
+        for spec in spec_set:
+            if spec.operator == "==":
+                return osv_client.query_package(package_name, str(spec.version))
+        return osv_client.query_package(package_name, None)
+    except Exception:
         return osv_client.query_package(package_name, None)
 
 
@@ -653,7 +679,7 @@ async def scan_dependencies(
 
                 if not dependency_files:
                     return (
-                        "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.\n\n"
+                        f"{_disclaimer()}\n\n"
                         "# Dependency Scan Report\n"
                         "## Summary\n"
                         "No dependency files found in zip archive.\n\n"
@@ -735,7 +761,7 @@ async def scan_dependencies(
             has_imports_scan = any("(latest)" in pkg for pkg in results)
 
             lines = [
-                "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
+                _disclaimer(),
                 "",
                 "# Dependency Scan Report",
                 f"Source: {scan_source}",
@@ -874,7 +900,7 @@ async def scan_dependencies(
 
         error_details = traceback.format_exc()
         logger.error(f"Error in dependency scan: {e}\n{error_details}")
-        return f"Error scanning dependencies: {str(e)}\n\nPlease check:\n1. The file content is valid\n2. The file format is supported (requirements.txt, pyproject.toml, setup.py, Pipfile.lock, poetry.lock)\n3. The file content is properly formatted\n4. For zip files: ensure proper base64 encoding and valid zip structure"
+        return _format_error("scan_dependencies", e, "Please check:\n1. The file content is valid\n2. The file format is supported (requirements.txt, pyproject.toml, setup.py, Pipfile.lock, poetry.lock)\n3. The file content is properly formatted\n4. For zip files: ensure proper base64 encoding and valid zip structure")
 
 
 @mcp.tool
@@ -948,7 +974,7 @@ async def scan_installed_packages(
                 name = pkg.get("name")
                 version = pkg.get("version")
                 if name and version:
-                    vulns = await scanner._check_exact_version(name, version)
+                    vulns = await scanner.check_exact_version(name, version)
                     if vulns:
                         results[f"{name}=={version}"] = vulns
         else:
@@ -964,7 +990,7 @@ async def scan_installed_packages(
         total_vulns = sum(len(v) for v in results.values())
 
         lines = [
-            "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
+            _disclaimer(),
             "",
             "# Installed Packages Scan",
             f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
@@ -1004,7 +1030,7 @@ async def scan_installed_packages(
 
     except Exception as e:
         logger.error(f"Error scanning installed packages: {e}")
-        return f"Error: {str(e)}"
+        return _format_error("scan_installed_packages", e)
 
 
 @mcp.tool
@@ -1144,7 +1170,7 @@ async def get_cve_details(
             return f"{cve_id} not found in NVD or OSV"
 
         lines = [
-            "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
+            _disclaimer(),
             "",
             f"# {cve_id}",
             "",
@@ -1187,7 +1213,7 @@ async def get_cve_details(
 
     except Exception as e:
         logger.error(f"Error fetching {cve_id}: {e}")
-        return f"Error: {str(e)}"
+        return _format_error("get_cve_details", e)
 
 
 def _scan_content_for_secrets(content: str, file_path: str) -> list[dict]:
@@ -1469,7 +1495,7 @@ async def scan_for_secrets(
 
     except Exception as e:
         logger.error(f"Error scanning for secrets: {e}")
-        return f"Error: {str(e)}"
+        return _format_error("scan_for_secrets", e)
 
 
 @mcp.tool
@@ -1683,20 +1709,32 @@ async def list_mcp_servers(
         passthrough = await get_passthrough(agent_name)
         available = await passthrough.get_available_servers()
 
-        return json.dumps(
-            {
-                "status": "success",
-                "agent": passthrough.agent_name,
-                "available_servers": available,
-            },
-            indent=2,
-        )
+        lines = [
+            "# Available MCP Servers",
+            f"Agent: **{passthrough.agent_name}**",
+            "",
+        ]
+        if not available:
+            lines.append("_No MCP servers configured._")
+        else:
+            for server_name, server_info in available.items():
+                lines.append(f"## {server_name}")
+                if isinstance(server_info, dict):
+                    tools = server_info.get("tools", [])
+                    if tools:
+                        for tool in tools:
+                            if isinstance(tool, dict):
+                                lines.append(f"- `{tool.get('name', 'unknown')}`: {tool.get('description', 'No description')}")
+                            else:
+                                lines.append(f"- `{tool}`")
+                    else:
+                        lines.append("_No tools discovered_")
+                lines.append("")
+        return "\n".join(lines)
 
     except Exception as e:
         logger.error(f"Error listing MCP servers: {e}")
-        return json.dumps(
-            {"status": "error", "message": str(e), "available_servers": {}}, indent=2
-        )
+        return _format_error("list_mcp_servers", e)
 
 
 @mcp.tool
@@ -2203,7 +2241,7 @@ Please ensure:
 
     except Exception as e:
         logger.error(f"Error validating MCP security: {e}")
-        return f"Error during MCP security validation: {str(e)}\n\nThis may indicate mcp-scan is not properly installed or configured."
+        return _format_error("validate_mcp_security", e, "This may indicate mcp-scan is not properly installed or configured.")
 
 
 @mcp.tool
@@ -2217,7 +2255,7 @@ async def scan_dockerfile(
     dockerfile_content: Annotated[
         str | None,
         Field(
-            description="Content of the Dockerfile as a string. Either this or dockerfile_content must be provided."
+            description="Content of the Dockerfile as a string. Either this or dockerfile_path must be provided."
         ),
     ] = None,
     zip_content: Annotated[
@@ -2297,7 +2335,7 @@ async def scan_dockerfile(
 
                 if not dockerfiles:
                     return (
-                        "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.\n\n"
+                        f"{_disclaimer()}\n\n"
                         "# Dockerfile Scan Report\n"
                         "## Summary\n"
                         "No Dockerfiles found in zip archive.\n\n"
@@ -2369,7 +2407,7 @@ async def scan_dockerfile(
 
             vulnerable_packages = []
             total_vulnerabilities = 0
-            severity_counts = {"CRITICAL": 0, "HIGH": 0, "MODERATE": 0, "LOW": 0, "UNKNOWN": 0}
+            severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "UNKNOWN": 0}
 
             for pkg_name, pkg_version in packages_list:
                 # Check package vulnerabilities
@@ -2389,7 +2427,7 @@ async def scan_dockerfile(
 
             # Format the results
             lines = [
-                "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty.",
+                _disclaimer(),
                 "",
                 "# Dockerfile Vulnerability Scan Report",
                 f"Source: {scan_source}",
@@ -2416,7 +2454,7 @@ async def scan_dockerfile(
                     "## Severity Breakdown",
                     f"- CRITICAL: {severity_counts['CRITICAL']}",
                     f"- HIGH: {severity_counts['HIGH']}",
-                    f"- MODERATE: {severity_counts['MODERATE']}",
+                    f"- MEDIUM: {severity_counts['MEDIUM']}",
                     f"- LOW: {severity_counts['LOW']}",
                     f"- UNKNOWN: {severity_counts['UNKNOWN']}",
                     ""
@@ -2493,7 +2531,7 @@ async def scan_dockerfile(
 
     except Exception as e:
         logger.error(f"Error scanning Dockerfile: {e}")
-        return f"❌ **Error during Dockerfile scan**: {str(e)}\n\nPlease ensure:\n1. The Dockerfile path is correct (if provided)\n2. You have read permissions for the file\n3. The Dockerfile content is valid"
+        return _format_error("scan_dockerfile", e, "Please ensure:\n1. The Dockerfile path is correct (if provided)\n2. You have read permissions for the file\n3. The Dockerfile content is valid")
 
 
 @mcp.tool
@@ -2626,11 +2664,11 @@ _comprehensive_sessions: dict[str, ComprehensiveSecurityCheck] = {}
 
 @mcp.tool
 async def comprehensive_security_check(
-    action: str,
-    project_path: str = "",
-    zip_content: str = "",
-    response: str = "",
-    session_id: str = ""
+    action: Annotated[str, Field(description="Action to perform: 'start' to begin a new check, 'continue' to continue an interactive session")],
+    project_path: Annotated[str | None, Field(description="Project path or GitHub URL to check (only for 'start' action)")] = None,
+    zip_content: Annotated[str | None, Field(description="Base64 encoded zip file to analyze (only for 'start' action, alternative to project_path)")] = None,
+    response: Annotated[str | None, Field(description="User response to continue the conversation (only for 'continue' action)")] = None,
+    session_id: Annotated[str | None, Field(description="Session ID from previous interaction (only for 'continue' action)")] = None,
 ) -> str:
     """Comprehensive interactive security check (requires LLM configuration).
 
@@ -2831,7 +2869,7 @@ Without an LLM, you can still use individual security tools:
 
     except Exception as e:
         logger.error(f"Error in comprehensive security check: {e}")
-        return f"❌ **Error**: {str(e)}"
+        return _format_error("comprehensive_security_check", e)
 
 
 @mcp.tool
@@ -3003,7 +3041,7 @@ async def get_mcp_conversations(
 
     except Exception as e:
         logger.error(f"Error retrieving conversations: {e}")
-        return f"❌ **Error retrieving conversations**: {str(e)}"
+        return _format_error("get_mcp_conversations", e)
 
 
 def _format_comprehensive_report(report: dict[str, Any]) -> str:
@@ -3367,17 +3405,16 @@ async def scan_github_repo(
             "**Note**: This scan provides a security assessment based on publicly available vulnerability data. "
             "Always verify findings and test remediation in a safe environment before applying to production.",
             "",
-            "⚠️  **DISCLAIMER**: Vulnerability data provided 'AS IS' without warranty."
+            _disclaimer()
         ])
 
         return "\n".join(lines)
 
     except Exception as e:
         logger.error(f"Error scanning GitHub repository: {e}")
-        return f"❌ **Error scanning repository**: {str(e)}\n\nPlease check the repository URL and try again."
+        return _format_error("scan_github_repo", e, "Please check the repository URL and try again.")
 
 
-@mcp.tool()
 def vulnicheck_debug_test() -> str:
     """
     Debug tool to verify VulniCheck server is serving tools correctly.
@@ -3386,7 +3423,6 @@ def vulnicheck_debug_test() -> str:
     return "SUCCESS: VulniCheck server is working and serving tools!"
 
 
-@mcp.tool()
 def install_vulnicheck_guide() -> str:
     """
     Installation guide for Claude Code users who want to install VulniCheck.
@@ -3665,10 +3701,25 @@ def main() -> None:
         default="none",
         help="Authentication mode: 'google' for Google OAuth 2.0, 'none' for no auth (default: none)",
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"VulniCheck {VULNICHECK_VERSION}",
+    )
+    parser.add_argument(
+        "--list-tools",
+        action="store_true",
+        help="List all registered MCP tools and exit",
+    )
     args = parser.parse_args()
 
+    if args.list_tools:
+        for tool in mcp._tool_manager._tools.values():
+            print(f"  {tool.name}: {tool.description.splitlines()[0] if tool.description else 'No description'}")
+        sys.exit(0)
+
     # Print startup info
-    print("VulniCheck MCP Server v0.1.0 (HTTP Streaming)", file=sys.stderr)
+    print(f"VulniCheck MCP Server v{VULNICHECK_VERSION} (HTTP Streaming)", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
     print(
         "DISCLAIMER: Vulnerability data is provided 'AS IS' without warranty.",
@@ -3751,24 +3802,38 @@ def main() -> None:
 
     # Initialize or reinitialize FastMCP server with optional auth and middleware
     try:
-        # Note: FastMCP middleware is passed as raw functions, not Middleware objects
-        # The middleware function signature is: async def middleware(request, call_next) -> response
+        old_mcp = mcp
 
-        # Use the original mcp instance to preserve tool registrations
-        # FastMCP doesn't transfer tool registrations when creating new instances,
-        # so we must use the same instance that has the @mcp.tool decorators applied
         if auth_provider:
-            # Configure the existing instance with authentication
-            # Note: FastMCP 2.x supports setting auth/middleware on existing instances
-            mcp._auth_provider = auth_provider  # type: ignore[attr-defined]
-            mcp._middleware = [url_detection_middleware]  # type: ignore[attr-defined]
-            logger.info("FastMCP server configured with Google OAuth authentication")
+            mcp = FastMCP(
+                "vulnicheck-mcp",
+                auth=auth_provider,
+                middleware=[url_detection_middleware],  # type: ignore[list-item]
+                streamable_http_path="/mcp"
+            )
+            logger.info("FastMCP server reinitialized with Google OAuth authentication")
             print("Server configured with Google OAuth authentication", file=sys.stderr)
         else:
-            # Configure the existing instance with middleware only
-            mcp._middleware = [url_detection_middleware]  # type: ignore[attr-defined]
+            mcp = FastMCP(
+                "vulnicheck-mcp",
+                middleware=[url_detection_middleware],  # type: ignore[list-item]
+                streamable_http_path="/mcp"
+            )
             logger.info("FastMCP server using default configuration (no authentication)")
             print("Server configured without authentication", file=sys.stderr)
+
+        # Re-register tools from the old instance onto the new one
+        if hasattr(old_mcp, "_tool_manager") and hasattr(mcp, "_tool_manager"):
+            for tool_name, tool in old_mcp._tool_manager._tools.items():
+                if tool_name not in mcp._tool_manager._tools:
+                    mcp._tool_manager._tools[tool_name] = tool
+
+        # Register debug tools only when VULNICHECK_DEBUG is set
+        if os.environ.get("VULNICHECK_DEBUG", "").lower() == "true":
+            mcp.tool()(vulnicheck_debug_test)
+            mcp.tool()(install_vulnicheck_guide)
+            logger.info("Debug tools registered (VULNICHECK_DEBUG=true)")
+
     except Exception as e:
         print(f"ERROR: Failed to configure FastMCP server: {e}", file=sys.stderr)
         sys.exit(1)

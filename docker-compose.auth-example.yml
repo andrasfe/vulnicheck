@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Example docker-compose configuration for VulniCheck with Google OAuth authentication
 #
 # Usage:
