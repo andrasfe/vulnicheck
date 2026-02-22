@@ -18,6 +18,9 @@ dependencies = [
     "toml>=0.10.2",
     "detect-secrets>=1.4.0",
     "mcp-scan>=0.1.0",
+    "tree-sitter>=0.23.0",
+    "tree-sitter-javascript>=0.23.0",
+    "tree-sitter-typescript>=0.23.0",
 ]
 
 [project.optional-dependencies]
@@ -66,6 +69,10 @@ exclude = [".venv/", "venv/"]
 
 [[tool.mypy.overrides]]
 module = ["mcp.*", "fastmcp.*", "mcp_scan.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tree_sitter.*", "tree_sitter_javascript.*", "tree_sitter_typescript.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

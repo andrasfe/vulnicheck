@@ -3657,6 +3657,614 @@ async def check_public_url() -> str:
     return "\n".join(report_lines)
 
 
+# ---------------------------------------------------------------------------
+# Node.js / TypeScript static analysis tools
+# ---------------------------------------------------------------------------
+
+# Extension-to-language mapping for the AST engine
+_NODEJS_EXTENSION_MAP: dict[str, str] = {
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".mts": "typescript",
+    ".cts": "typescript",
+}
+
+# File extensions to scan when processing zip archives
+_NODEJS_EXTENSIONS: frozenset[str] = frozenset(_NODEJS_EXTENSION_MAP.keys())
+
+
+def _language_from_filename(file_name: str) -> str | None:
+    """Determine the tree-sitter language from a file name.
+
+    Args:
+        file_name: File name or path (e.g., ``"server.ts"``).
+
+    Returns:
+        A language string accepted by ``ASTEngine.parse``, or ``None`` if the
+        extension is not recognised.
+    """
+    suffix = Path(file_name).suffix.lower()
+    return _NODEJS_EXTENSION_MAP.get(suffix)
+
+
+def _format_findings_markdown(
+    findings: list[Any],
+    title: str,
+    files_analyzed: int,
+    scan_source: str,
+) -> str:
+    """Render a list of ``SecurityFinding`` objects as a Markdown report.
+
+    Args:
+        findings: List of ``SecurityFinding`` instances.
+        title: Report title.
+        files_analyzed: Number of files that were analyzed.
+        scan_source: Human-readable description of the input source.
+
+    Returns:
+        A Markdown-formatted report string.
+    """
+    lines: list[str] = [
+        f"# {title}",
+        f"Source: {scan_source}",
+        f"Files analyzed: {files_analyzed}",
+        f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "",
+    ]
+
+    if not findings:
+        lines.append("## Results")
+        lines.append("")
+        lines.append("No security issues found.")
+        return "\n".join(lines)
+
+    # Group by severity
+    severity_order = ["critical", "high", "medium", "low", "info"]
+    by_severity: dict[str, list[Any]] = {}
+    for f in findings:
+        sev = f.severity.lower()
+        by_severity.setdefault(sev, []).append(f)
+
+    # Summary counts
+    lines.append("## Summary")
+    lines.append(f"- Total findings: {len(findings)}")
+    for sev in severity_order:
+        count = len(by_severity.get(sev, []))
+        if count:
+            lines.append(f"- {sev.upper()}: {count}")
+    lines.append("")
+
+    # Detail per severity group
+    for sev in severity_order:
+        group = by_severity.get(sev, [])
+        if not group:
+            continue
+        lines.append(f"## {sev.upper()} ({len(group)})")
+        lines.append("")
+        for finding in group:
+            lines.append(f"### [{finding.rule_id}] {finding.title}")
+            lines.append(f"- **File**: {finding.file_path}:{finding.line}")
+            lines.append(f"- **Category**: {finding.category}")
+            lines.append(f"- **Confidence**: {finding.confidence}")
+            if finding.cwe_id:
+                lines.append(f"- **CWE**: {finding.cwe_id}")
+            lines.append("")
+            lines.append(finding.description)
+            if finding.code_snippet:
+                lines.append("")
+                lines.append("```")
+                lines.append(finding.code_snippet[:500])
+                lines.append("```")
+            if finding.recommendation:
+                lines.append("")
+                lines.append(f"**Recommendation**: {finding.recommendation}")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool
+async def scan_nodejs_project(
+    file_content: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Contents of a TypeScript/JavaScript file to analyze",
+        ),
+    ] = None,
+    file_name: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Name of the file (used to determine language: .ts, .tsx, .js, .jsx)",
+        ),
+    ] = None,
+    zip_content: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Base64-encoded zip file containing a Node.js/TypeScript project",
+        ),
+    ] = None,
+    categories: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "Comma-separated categories to check: "
+                "rce,prompt_injection,data_exfiltration,supply_chain,"
+                "unauthorized_access,insecure_deserialization. Default: all"
+            ),
+        ),
+    ] = None,
+    min_severity: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Minimum severity level: critical, high, medium, low, info. Default: low",
+        ),
+    ] = None,
+) -> str:
+    """Scan TypeScript/JavaScript code for security vulnerabilities.
+
+    Performs static analysis using AST parsing to detect:
+    - Remote Code Execution (RCE) vulnerabilities
+    - Prompt injection in MCP tool descriptions
+    - Data exfiltration patterns
+    - Supply chain risks
+    - Unauthorized access patterns
+    - Insecure deserialization
+
+    USE THIS TOOL WHEN:
+    - You have TypeScript or JavaScript source code to analyze for security issues
+    - You want to scan a Node.js project for vulnerabilities
+    - You have a zip file containing a TS/JS project
+
+    DO NOT USE THIS TOOL FOR:
+    - Analyzing MCP tool definitions specifically (use scan_mcp_skills instead)
+    - Scanning Python dependencies (use scan_dependencies instead)
+    - Checking for secrets (use scan_for_secrets instead)
+
+    INPUT OPTIONS (specify exactly one):
+    - file_content + file_name: Single file analysis
+    - zip_content: Base64-encoded zip file containing a Node.js/TypeScript project
+
+    USAGE: Provide either file_content with file_name, or zip_content for a full project.
+    """
+    try:
+        # Lazy import to handle missing tree-sitter packages gracefully
+        try:
+            from .scanners.nodejs import ASTEngine
+            from .scanners.nodejs.pattern_utils import run_all_patterns
+            from .scanners.nodejs.patterns import Severity
+        except ImportError as imp_err:
+            return (
+                "Error: Node.js/TypeScript analysis requires tree-sitter packages. "
+                f"Install them with: pip install tree-sitter tree-sitter-javascript tree-sitter-typescript\n\n"
+                f"Import error: {imp_err}"
+            )
+
+        # Input validation
+        if zip_content and (file_content or file_name):
+            return (
+                "Error: Cannot specify both zip_content and file_content/file_name. "
+                "Please use either zip_content OR file_content + file_name."
+            )
+
+        if not zip_content and not file_content:
+            return (
+                "Error: Must specify either zip_content OR file_content (with file_name). "
+                "Provide the source code to analyze."
+            )
+
+        # Parse category and severity filters
+        category_list: list[str] | None = None
+        if categories:
+            category_list = [c.strip().upper() for c in categories.split(",") if c.strip()]
+
+        severity_map: dict[str, Severity] = {
+            "critical": Severity.CRITICAL,
+            "high": Severity.HIGH,
+            "medium": Severity.MEDIUM,
+            "low": Severity.LOW,
+            "info": Severity.INFO,
+        }
+        severity_filter = severity_map.get(
+            (min_severity or "low").lower(), Severity.LOW
+        )
+
+        engine = ASTEngine()
+        all_findings: list[Any] = []
+        files_analyzed = 0
+
+        if zip_content:
+            # Zip mode: extract and scan all TS/JS files
+            unified_scanner = get_unified_scanner()
+
+            async with ScanContext(
+                scanner=unified_scanner,
+                zip_content=zip_content,
+                scan_type="nodejs",
+            ) as (scan_mode, scan_context):
+                extraction_path = scan_context["extraction_path"]
+
+                # Collect all TS/JS/JSX/TSX files
+                ts_js_files: list[Path] = []
+                for ext in _NODEJS_EXTENSIONS:
+                    pattern = f"**/*{ext}"
+                    matched = list(extraction_path.glob(pattern))
+                    ts_js_files.extend(f for f in matched if f.is_file())
+
+                if not ts_js_files:
+                    return (
+                        "# Node.js/TypeScript Security Scan\n\n"
+                        "No TypeScript or JavaScript files found in the zip archive.\n\n"
+                        "Expected file extensions: "
+                        + ", ".join(sorted(_NODEJS_EXTENSIONS))
+                    )
+
+                for ts_file in sorted(ts_js_files):
+                    language = _language_from_filename(ts_file.name)
+                    if language is None:
+                        continue
+
+                    try:
+                        content = ts_file.read_text(encoding="utf-8", errors="replace")
+                    except OSError as read_err:
+                        logger.warning("Could not read %s: %s", ts_file, read_err)
+                        continue
+
+                    try:
+                        ast = engine.parse(content, language=language)
+                    except Exception as parse_err:
+                        logger.warning("Parse error in %s: %s", ts_file, parse_err)
+                        continue
+
+                    relative_path = str(ts_file.relative_to(extraction_path))
+                    findings = run_all_patterns(
+                        ast,
+                        engine,
+                        file_path=relative_path,
+                        categories=category_list,
+                        min_severity=severity_filter,
+                    )
+                    all_findings.extend(findings)
+                    files_analyzed += 1
+
+            scan_source = f"Zip archive ({files_analyzed} files)"
+
+        else:
+            # Single-file mode
+            effective_name = file_name or "untitled.ts"
+            language = _language_from_filename(effective_name)
+            if language is None:
+                return (
+                    f"Error: Unsupported file extension for '{effective_name}'. "
+                    f"Supported: {', '.join(sorted(_NODEJS_EXTENSIONS))}"
+                )
+
+            # file_content is guaranteed non-None by the earlier validation
+            assert file_content is not None
+            ast = engine.parse(file_content, language=language)
+            all_findings = run_all_patterns(
+                ast,
+                engine,
+                file_path=effective_name,
+                categories=category_list,
+                min_severity=severity_filter,
+            )
+            files_analyzed = 1
+            scan_source = effective_name
+
+        return _format_findings_markdown(
+            all_findings,
+            title="Node.js/TypeScript Security Scan",
+            files_analyzed=files_analyzed,
+            scan_source=scan_source,
+        )
+
+    except Exception as e:
+        logger.error("Error in scan_nodejs_project: %s", e, exc_info=True)
+        return f"Error scanning Node.js/TypeScript code: {e}"
+
+
+@mcp.tool
+async def scan_mcp_skills(
+    file_content: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Contents of a TypeScript/JavaScript file containing MCP tool definitions",
+        ),
+    ] = None,
+    file_name: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Name of the file",
+        ),
+    ] = None,
+    zip_content: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Base64-encoded zip file containing MCP server code",
+        ),
+    ] = None,
+) -> str:
+    """Analyze MCP skill/tool definitions for security vulnerabilities.
+
+    Specifically designed to detect malicious or compromised MCP tools:
+    - Prompt injection in tool descriptions
+    - Data exfiltration in tool handlers
+    - RCE vulnerabilities in tool implementations
+    - Missing authorization checks
+    - Unauthorized environment variable access
+
+    USE THIS TOOL WHEN:
+    - You want to audit MCP tool definitions for security issues
+    - You suspect an MCP server may contain malicious tool descriptions
+    - You need to verify that tool handlers follow security best practices
+    - You want to check for prompt injection in server.tool() definitions
+
+    DO NOT USE THIS TOOL FOR:
+    - General JavaScript/TypeScript analysis (use scan_nodejs_project instead)
+    - Scanning Python dependencies (use scan_dependencies instead)
+    - Checking MCP *configuration* files (use validate_mcp_security instead)
+
+    INPUT OPTIONS (specify exactly one):
+    - file_content + file_name: Single file containing MCP tool definitions
+    - zip_content: Base64-encoded zip file containing MCP server code
+
+    USAGE: Provide the file(s) containing server.tool() definitions.
+    DO NOT USE for general JavaScript/TypeScript analysis - use scan_nodejs_project instead.
+    """
+    try:
+        # Lazy import to handle missing tree-sitter packages gracefully
+        try:
+            from .scanners.nodejs import ASTEngine
+            from .scanners.nodejs.pattern_utils import (
+                analyze_mcp_tool_descriptions,
+                analyze_tool_handler_security,
+                run_all_patterns,
+            )
+            from .scanners.nodejs.patterns import Severity
+        except ImportError as imp_err:
+            return (
+                "Error: MCP skill analysis requires tree-sitter packages. "
+                f"Install them with: pip install tree-sitter tree-sitter-javascript tree-sitter-typescript\n\n"
+                f"Import error: {imp_err}"
+            )
+
+        # Input validation
+        if zip_content and (file_content or file_name):
+            return (
+                "Error: Cannot specify both zip_content and file_content/file_name. "
+                "Please use either zip_content OR file_content + file_name."
+            )
+
+        if not zip_content and not file_content:
+            return (
+                "Error: Must specify either zip_content OR file_content (with file_name). "
+                "Provide the MCP server source code to analyze."
+            )
+
+        engine = ASTEngine()
+        all_findings: list[Any] = []
+        files_analyzed = 0
+
+        # RCE-specific categories for focused scanning
+        rce_categories = ["RCE"]
+
+        if zip_content:
+            # Zip mode: extract and scan all TS/JS files for MCP definitions
+            unified_scanner = get_unified_scanner()
+
+            async with ScanContext(
+                scanner=unified_scanner,
+                zip_content=zip_content,
+                scan_type="mcp_skills",
+            ) as (scan_mode, scan_context):
+                extraction_path = scan_context["extraction_path"]
+
+                # Collect all TS/JS files
+                ts_js_files: list[Path] = []
+                for ext in _NODEJS_EXTENSIONS:
+                    pattern = f"**/*{ext}"
+                    matched = list(extraction_path.glob(pattern))
+                    ts_js_files.extend(f for f in matched if f.is_file())
+
+                if not ts_js_files:
+                    return (
+                        "# MCP Skill Security Analysis\n\n"
+                        "No TypeScript or JavaScript files found in the zip archive.\n\n"
+                        "Expected file extensions: "
+                        + ", ".join(sorted(_NODEJS_EXTENSIONS))
+                    )
+
+                for ts_file in sorted(ts_js_files):
+                    language = _language_from_filename(ts_file.name)
+                    if language is None:
+                        continue
+
+                    try:
+                        content = ts_file.read_text(encoding="utf-8", errors="replace")
+                    except OSError as read_err:
+                        logger.warning("Could not read %s: %s", ts_file, read_err)
+                        continue
+
+                    try:
+                        ast = engine.parse(content, language=language)
+                    except Exception as parse_err:
+                        logger.warning("Parse error in %s: %s", ts_file, parse_err)
+                        continue
+
+                    relative_path = str(ts_file.relative_to(extraction_path))
+
+                    # MCP-specific analyses
+                    all_findings.extend(
+                        analyze_mcp_tool_descriptions(ast, engine, file_path=relative_path)
+                    )
+                    all_findings.extend(
+                        analyze_tool_handler_security(ast, engine, file_path=relative_path)
+                    )
+                    # Also run RCE patterns against tool code
+                    all_findings.extend(
+                        run_all_patterns(
+                            ast,
+                            engine,
+                            file_path=relative_path,
+                            categories=rce_categories,
+                            min_severity=Severity.LOW,
+                        )
+                    )
+                    files_analyzed += 1
+
+            scan_source = f"Zip archive ({files_analyzed} files)"
+
+        else:
+            # Single-file mode
+            effective_name = file_name or "server.ts"
+            language = _language_from_filename(effective_name)
+            if language is None:
+                return (
+                    f"Error: Unsupported file extension for '{effective_name}'. "
+                    f"Supported: {', '.join(sorted(_NODEJS_EXTENSIONS))}"
+                )
+
+            assert file_content is not None
+            ast = engine.parse(file_content, language=language)
+
+            # MCP-specific analyses
+            all_findings.extend(
+                analyze_mcp_tool_descriptions(ast, engine, file_path=effective_name)
+            )
+            all_findings.extend(
+                analyze_tool_handler_security(ast, engine, file_path=effective_name)
+            )
+            # Also run RCE patterns
+            all_findings.extend(
+                run_all_patterns(
+                    ast,
+                    engine,
+                    file_path=effective_name,
+                    categories=rce_categories,
+                    min_severity=Severity.LOW,
+                )
+            )
+            files_analyzed = 1
+            scan_source = effective_name
+
+        # Deduplicate findings (same rule_id + file + line)
+        seen: set[tuple[str, str, int]] = set()
+        unique_findings: list[Any] = []
+        for f in all_findings:
+            key = (f.rule_id, f.file_path, f.line)
+            if key not in seen:
+                seen.add(key)
+                unique_findings.append(f)
+
+        # Build the report with MCP-specific risk assessment
+        report = _format_findings_markdown(
+            unique_findings,
+            title="MCP Skill Security Analysis",
+            files_analyzed=files_analyzed,
+            scan_source=scan_source,
+        )
+
+        # Append MCP-specific risk assessment summary
+        risk_lines: list[str] = []
+        risk_lines.append("")
+        risk_lines.append("## MCP Risk Assessment")
+        risk_lines.append("")
+
+        if not unique_findings:
+            risk_lines.append(
+                "No security issues detected in MCP tool definitions. "
+                "The analyzed code appears to follow security best practices."
+            )
+        else:
+            # Categorize findings by MCP-relevant concern
+            prompt_injection = [
+                f for f in unique_findings
+                if "prompt_injection" in f.category.lower()
+            ]
+            data_exfil = [
+                f for f in unique_findings
+                if "exfiltration" in f.category.lower()
+            ]
+            rce = [
+                f for f in unique_findings
+                if f.category.lower() == "rce"
+                or f.rule_id.startswith("RCE")
+            ]
+            unauth = [
+                f for f in unique_findings
+                if "unauthorized" in f.category.lower()
+            ]
+
+            has_critical = any(
+                f.severity.lower() == "critical" for f in unique_findings
+            )
+            has_high = any(
+                f.severity.lower() == "high" for f in unique_findings
+            )
+
+            if has_critical:
+                risk_lines.append(
+                    "**RISK LEVEL: CRITICAL** -- This MCP server contains "
+                    "critical security vulnerabilities that must be addressed "
+                    "before deployment."
+                )
+            elif has_high:
+                risk_lines.append(
+                    "**RISK LEVEL: HIGH** -- This MCP server contains "
+                    "high-severity issues that should be reviewed promptly."
+                )
+            else:
+                risk_lines.append(
+                    "**RISK LEVEL: MODERATE** -- Some issues were found. "
+                    "Review the findings and apply recommended fixes."
+                )
+
+            risk_lines.append("")
+
+            if prompt_injection:
+                risk_lines.append(
+                    f"- **Prompt Injection**: {len(prompt_injection)} finding(s) -- "
+                    "tool descriptions may contain hidden instructions that "
+                    "manipulate LLM behavior."
+                )
+            if data_exfil:
+                risk_lines.append(
+                    f"- **Data Exfiltration**: {len(data_exfil)} finding(s) -- "
+                    "tool handlers may leak sensitive data to external services."
+                )
+            if rce:
+                risk_lines.append(
+                    f"- **Remote Code Execution**: {len(rce)} finding(s) -- "
+                    "tool handlers may execute arbitrary commands."
+                )
+            if unauth:
+                risk_lines.append(
+                    f"- **Unauthorized Access**: {len(unauth)} finding(s) -- "
+                    "tool handlers lack proper authorization checks."
+                )
+
+        report += "\n".join(risk_lines)
+        return report
+
+    except Exception as e:
+        logger.error("Error in scan_mcp_skills: %s", e, exc_info=True)
+        return f"Error analyzing MCP skills: {e}"
+
+
 async def url_detection_middleware(request: Any, call_next: Any) -> Any:
     """Middleware to capture request headers for URL detection."""
     global detected_public_url, last_request_headers
