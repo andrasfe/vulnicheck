@@ -61,9 +61,8 @@ class LLMRiskAssessor:
 
         except Exception as e:
             logger.error(f"Error in request assessment: {e}")
-            # Fail closed - return UNKNOWN risk level with assessment_failed flag
-            # For security tools, we should not allow operations when assessment fails
-            return False, "UNKNOWN", f"Assessment failed: {str(e)} - manual review required"
+            # Fail open - allow the request but log the error
+            return True, None, f"Assessment error: {str(e)}"
 
     async def assess_response(
         self,
@@ -99,9 +98,8 @@ class LLMRiskAssessor:
 
         except Exception as e:
             logger.error(f"Error in response assessment: {e}")
-            # Fail closed - return UNKNOWN risk level with assessment_failed flag
-            # For security tools, we should not allow operations when assessment fails
-            return False, "UNKNOWN", f"Assessment failed: {str(e)} - manual review required"
+            # Fail open - allow the response but log the error
+            return True, None, f"Assessment error: {str(e)}"
 
     def _build_request_assessment_prompt(
         self,

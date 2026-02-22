@@ -191,9 +191,8 @@ class TestSecretsScanner:
 
             files = scanner._collect_files(tmpdir_path)
 
-            # Resolve paths to handle macOS /var -> /private/var symlink
-            real_tmpdir = Path(tmpdir_path).resolve()
-            rel_files = [str(Path(f).resolve().relative_to(real_tmpdir)) for f in files]
+            # Convert to relative paths for easier testing
+            rel_files = [str(Path(f).relative_to(tmpdir_path)) for f in files]
 
             assert "test.py" in rel_files
             assert "config.json" in rel_files
@@ -214,9 +213,7 @@ class TestSecretsScanner:
             (tmpdir_path / "test_file.py").write_text("test file")
 
             files = scanner._collect_files(tmpdir_path, ["exclude.py", "test_*"])
-            # Resolve paths to handle macOS /var -> /private/var symlink
-            real_tmpdir = Path(tmpdir_path).resolve()
-            rel_files = [str(Path(f).resolve().relative_to(real_tmpdir)) for f in files]
+            rel_files = [str(Path(f).relative_to(tmpdir_path)) for f in files]
 
             assert "include.py" in rel_files
             assert "exclude.py" not in rel_files

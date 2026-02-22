@@ -63,9 +63,7 @@ class UnifiedScanner:
         if zip_content:
             return await self._prepare_zip_input(zip_content, scan_type)
         else:
-            # We've already validated this above - traditional_input cannot be None here
-            if traditional_input is None:
-                raise UnifiedScannerError("Traditional input cannot be None")
+            assert traditional_input is not None  # We've already validated this above
             return await self._prepare_traditional_input(traditional_input, scan_type)
 
     async def _prepare_zip_input(self, zip_content: str, scan_type: str) -> tuple[str, dict[str, Any]]:

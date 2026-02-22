@@ -6,13 +6,11 @@ This module provides a generic approval mechanism that works with any MCP client
 the client to make security decisions.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 
 # Import types only to avoid circular import
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..security.dangerous_commands_risk_config import RiskLevel
 
@@ -40,7 +38,7 @@ class MCPApprovalIntegration:
         self.pending_approvals: dict[str, ApprovalRequest] = {}
 
     async def request_client_approval(
-        self, request: ApprovalRequest
+        self, request: "ApprovalRequest"
     ) -> dict[str, Any]:
         """
         Format an approval request for the MCP client to review.
@@ -151,7 +149,7 @@ class MCPApprovalIntegration:
         approved: bool,
         reason: str,
         suggested_alternative: str | None = None,
-    ) -> ApprovalResponse:
+    ) -> "ApprovalResponse":
         """
         Process the MCP client's approval decision.
 
@@ -176,7 +174,7 @@ class MCPApprovalIntegration:
             suggested_alternative=suggested_alternative,
         )
 
-    def get_pending_approval(self, request_id: str) -> ApprovalRequest | None:
+    def get_pending_approval(self, request_id: str) -> Optional["ApprovalRequest"]:
         """Get a pending approval request by ID."""
         return self.pending_approvals.get(request_id)
 
@@ -191,7 +189,7 @@ class MCPApprovalIntegration:
 _mcp_integration = MCPApprovalIntegration()
 
 
-async def mcp_approval_callback(request: ApprovalRequest) -> ApprovalResponse:
+async def mcp_approval_callback(request: "ApprovalRequest") -> "ApprovalResponse":
     """
     Generic MCP client approval callback.
 

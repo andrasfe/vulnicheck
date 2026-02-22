@@ -195,21 +195,21 @@ class ComprehensiveSecurityCheck:
         if not self.context.project_path or not self.context.project_path.exists():
             return discovery
 
-        # Look for dependency files - use properly typed local list
-        dep_files_list: list[str] = []
+        # Look for dependency files
         dep_patterns = ["requirements.txt", "pyproject.toml", "Pipfile", "poetry.lock", "Pipfile.lock"]
         for pattern in dep_patterns:
             for file in self.context.project_path.rglob(pattern):
                 self.context.dependency_files.append(file)
-                dep_files_list.append(str(file.relative_to(self.context.project_path)))
-        discovery["dependency_files"] = dep_files_list
+                dep_files = discovery["dependency_files"]
+                assert isinstance(dep_files, list)
+                dep_files.append(str(file.relative_to(self.context.project_path)))
 
-        # Look for Dockerfiles - use properly typed local list
-        docker_files_list: list[str] = []
+        # Look for Dockerfiles
         for file in self.context.project_path.rglob("Dockerfile*"):
             self.context.dockerfiles.append(file)
-            docker_files_list.append(str(file.relative_to(self.context.project_path)))
-        discovery["dockerfiles"] = docker_files_list
+            docker_files = discovery["dockerfiles"]
+            assert isinstance(docker_files, list)
+            docker_files.append(str(file.relative_to(self.context.project_path)))
 
         # Check for git
         discovery["has_git"] = (self.context.project_path / ".git").exists()

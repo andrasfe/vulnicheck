@@ -72,24 +72,26 @@ class DockerScanner:
         Returns:
             Dictionary containing scan results with vulnerability information
         """
-        # Use synchronous implementation directly to avoid event loop overhead
-        # The sync version uses self.scanner.check_package() which is synchronous
-        # No need to create event loops when the underlying operations are sync
+        # For sync compatibility, delegate to async version when possible
         try:
-            asyncio.get_running_loop()
-            # If we're in a running loop, warn that async version should be used
-            import warnings
-            warnings.warn(
-                "scan_dockerfile called from async context, use scan_dockerfile_async instead",
-                DeprecationWarning,
-                stacklevel=2
-            )
-        except RuntimeError:
-            # No running event loop - this is the expected case for sync calls
-            pass
-
-        # Always use sync implementation to avoid asyncio.run() overhead
-        return self._scan_dockerfile_sync(dockerfile_path, dockerfile_content)
+            # Check if we're already in a running event loop
+            try:
+                asyncio.get_running_loop()
+                # If we're in a running loop, we can't use run() or run_until_complete()
+                import warnings
+                warnings.warn(
+                    "scan_dockerfile called from async context, use scan_dockerfile_async instead",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+                # Fall back to synchronous implementation
+                return self._scan_dockerfile_sync(dockerfile_path, dockerfile_content)
+            except RuntimeError:
+                # No running event loop, safe to create a new one
+                return asyncio.run(self.scan_dockerfile_async(dockerfile_path, dockerfile_content))
+        except Exception:
+            # Fall back to sync implementation for any other issues
+            return self._scan_dockerfile_sync(dockerfile_path, dockerfile_content)
 
     def _scan_dockerfile_sync(self, dockerfile_path: str | None = None, dockerfile_content: str | None = None) -> dict[str, Any]:
         """Synchronous fallback implementation for scan_dockerfile.
@@ -122,29 +124,28 @@ class DockerScanner:
                     "vulnerabilities": []
                 }
 
-        # Extract dependencies - dockerfile_content is guaranteed to be set at this point
-        # due to the validation logic above (either from path or provided directly)
-        if dockerfile_content is None:
-            return {
-                "error": "Dockerfile content not available",
-                "packages_found": 0,
-                "vulnerabilities": []
-            }
+        # Extract dependencies
+        assert dockerfile_content is not None  # We've already validated this
         dependencies = self._extract_dependencies(dockerfile_content)
 
         # Check for referenced files
         referenced_files = self._extract_referenced_files(dockerfile_content)
 
-        # Use properly typed local variables instead of dict for accumulation
-        vulnerabilities_list: list[dict[str, Any]] = []
-        vulnerable_packages_set: set[str] = set()
-        total_vulnerabilities = 0
-        severity_summary: dict[str, int] = {
-            "CRITICAL": 0,
-            "HIGH": 0,
-            "MODERATE": 0,
-            "LOW": 0,
-            "UNKNOWN": 0
+        # Scan dependencies for vulnerabilities
+        results: dict[str, Any] = {
+            "packages_found": len(dependencies),
+            "dependencies": dependencies,
+            "referenced_files": referenced_files,
+            "vulnerabilities": [],
+            "vulnerable_packages": set(),
+            "total_vulnerabilities": 0,
+            "severity_summary": {
+                "CRITICAL": 0,
+                "HIGH": 0,
+                "MODERATE": 0,
+                "LOW": 0,
+                "UNKNOWN": 0
+            }
         }
 
         # Check each dependency
@@ -153,32 +154,36 @@ class DockerScanner:
                 continue
             vulns = self.scanner.check_package(package, version)
             if vulns:
-                vulnerable_packages_set.add(package)
+                vulnerable_packages = results["vulnerable_packages"]
+                assert isinstance(vulnerable_packages, set)
+                vulnerable_packages.add(package)
                 for vuln in vulns:
                     vuln_info = {
                         "package": package,
                         "installed_version": version or "latest",
                         "vulnerability": vuln
                     }
-                    vulnerabilities_list.append(vuln_info)
+                    vulnerabilities = results["vulnerabilities"]
+                    assert isinstance(vulnerabilities, list)
+                    vulnerabilities.append(vuln_info)
 
                     # Update severity counts
                     severity = vuln.get("severity", "UNKNOWN")
+                    severity_summary = results["severity_summary"]
+                    assert isinstance(severity_summary, dict)
                     severity_summary[severity] = severity_summary.get(severity, 0) + 1
-                    total_vulnerabilities += 1
+                    total_vulns = results["total_vulnerabilities"]
+                    assert isinstance(total_vulns, int)
+                    results["total_vulnerabilities"] = total_vulns + 1
 
-        # Build result dict with properly typed values
-        results: dict[str, Any] = {
-            "packages_found": len(dependencies),
-            "dependencies": dependencies,
-            "referenced_files": referenced_files,
-            "vulnerabilities": vulnerabilities_list,
-            "vulnerable_packages": list(vulnerable_packages_set),
-            "total_vulnerabilities": total_vulnerabilities,
-            "severity_summary": severity_summary,
-            "scan_type": "dockerfile",
-            "scanner_version": "0.1.0"
-        }
+        # Convert set to list for JSON serialization
+        vulnerable_packages_set = results["vulnerable_packages"]
+        assert isinstance(vulnerable_packages_set, set)
+        results["vulnerable_packages"] = list(vulnerable_packages_set)
+
+        # Add scan metadata
+        results["scan_type"] = "dockerfile"
+        results["scanner_version"] = "0.1.0"
 
         return results
 
@@ -370,29 +375,28 @@ class DockerScanner:
                     "vulnerabilities": []
                 }
 
-        # Extract dependencies - dockerfile_content is guaranteed to be set at this point
-        # due to the validation logic above (either from path or provided directly)
-        if dockerfile_content is None:
-            return {
-                "error": "Dockerfile content not available",
-                "packages_found": 0,
-                "vulnerabilities": []
-            }
+        # Extract dependencies
+        assert dockerfile_content is not None  # We've already validated this
         dependencies = self._extract_dependencies(dockerfile_content)
 
         # Check for referenced files
         referenced_files = self._extract_referenced_files(dockerfile_content)
 
-        # Use properly typed local variables instead of dict for accumulation
-        vulnerabilities_list: list[dict[str, Any]] = []
-        vulnerable_packages_set: set[str] = set()
-        total_vulnerabilities = 0
-        severity_summary: dict[str, int] = {
-            "CRITICAL": 0,
-            "HIGH": 0,
-            "MODERATE": 0,
-            "LOW": 0,
-            "UNKNOWN": 0
+        # Scan dependencies for vulnerabilities
+        results: dict[str, Any] = {
+            "packages_found": len(dependencies),
+            "dependencies": dependencies,
+            "referenced_files": referenced_files,
+            "vulnerabilities": [],
+            "vulnerable_packages": set(),
+            "total_vulnerabilities": 0,
+            "severity_summary": {
+                "CRITICAL": 0,
+                "HIGH": 0,
+                "MODERATE": 0,
+                "LOW": 0,
+                "UNKNOWN": 0
+            }
         }
 
         # Check each dependency
@@ -401,31 +405,35 @@ class DockerScanner:
                 continue
             vulns = self.scanner.check_package(package, version)
             if vulns:
-                vulnerable_packages_set.add(package)
+                vulnerable_packages = results["vulnerable_packages"]
+                assert isinstance(vulnerable_packages, set)
+                vulnerable_packages.add(package)
                 for vuln in vulns:
                     vuln_info = {
                         "package": package,
                         "installed_version": version or "latest",
                         "vulnerability": vuln
                     }
-                    vulnerabilities_list.append(vuln_info)
+                    vulnerabilities = results["vulnerabilities"]
+                    assert isinstance(vulnerabilities, list)
+                    vulnerabilities.append(vuln_info)
 
                     # Update severity counts
                     severity = vuln.get("severity", "UNKNOWN")
+                    severity_summary = results["severity_summary"]
+                    assert isinstance(severity_summary, dict)
                     severity_summary[severity] = severity_summary.get(severity, 0) + 1
-                    total_vulnerabilities += 1
+                    total_vulns = results["total_vulnerabilities"]
+                    assert isinstance(total_vulns, int)
+                    results["total_vulnerabilities"] = total_vulns + 1
 
-        # Build result dict with properly typed values
-        results: dict[str, Any] = {
-            "packages_found": len(dependencies),
-            "dependencies": dependencies,
-            "referenced_files": referenced_files,
-            "vulnerabilities": vulnerabilities_list,
-            "vulnerable_packages": list(vulnerable_packages_set),
-            "total_vulnerabilities": total_vulnerabilities,
-            "severity_summary": severity_summary,
-            "scan_type": "dockerfile",
-            "scanner_version": "0.1.0"
-        }
+        # Convert set to list for JSON serialization
+        vulnerable_packages_set = results["vulnerable_packages"]
+        assert isinstance(vulnerable_packages_set, set)
+        results["vulnerable_packages"] = list(vulnerable_packages_set)
+
+        # Add scan metadata
+        results["scan_type"] = "dockerfile"
+        results["scanner_version"] = "0.1.0"
 
         return results

@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -11,9 +12,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from .clients import CIRCLClient, GitHubClient, NVDClient, OSVClient, SafetyDBClient
-from .clients.osv_client import Vulnerability
 from .core import get_mcp_paths_for_agent
-from .core.cache import cache_with_ttl
 from .core.unified_scanner import ScanContext, UnifiedScannerError, get_unified_scanner
 from .mcp import (
     ConversationStorage,
@@ -144,10 +143,10 @@ def _ensure_clients_initialized() -> None:
                 # Attempt to create MCP client file provider
                 mcp_provider = file_provider_manager.get_mcp_provider(server_name)
 
-                # Test that MCP client is actually available by checking for connection
-                # The MCPClientFileProvider requires an actual MCPConnection instance
+                # Test that MCP client is actually available by checking for client
+                # The MCPClientFileProvider requires an actual MCPClient instance
                 # but we don't have a reverse connection to Claude Code yet
-                if mcp_provider._connection is None and mcp_provider._server_config is None:
+                if mcp_provider.client is None:
                     raise UnsupportedOperationError("MCP client not available - missing file operation tools in Claude Code")
 
                 client_file_provider = mcp_provider
@@ -185,29 +184,19 @@ def _ensure_clients_initialized() -> None:
         github_scanner = GitHubRepoScanner(scanner, secrets_scanner, docker_scanner)
 
 
-@cache_with_ttl(maxsize=1000, ttl_seconds=900)  # 15 minute TTL for vulnerability data
+@lru_cache(maxsize=1000)
 def cached_query_package(package_name: str, version: str | None = None) -> list[Any]:
-    """Query package with caching.
-
-    Uses TTL-based caching to ensure vulnerability data is refreshed
-    periodically, as vulnerability databases are updated hourly.
-    """
+    """Query package with caching."""
     _ensure_clients_initialized()
-    if osv_client is None:
-        raise RuntimeError("OSV client not initialized - call _ensure_clients_initialized() first")
+    assert osv_client is not None
     return osv_client.query_package(package_name, version)
 
 
-@cache_with_ttl(maxsize=500, ttl_seconds=900)  # 15 minute TTL for CVE data
+@lru_cache(maxsize=500)
 def cached_get_cve(cve_id: str) -> Any | None:
-    """Get CVE with caching.
-
-    Uses TTL-based caching to ensure CVE data is refreshed
-    periodically, as NVD is updated frequently.
-    """
+    """Get CVE with caching."""
     _ensure_clients_initialized()
-    if nvd_client is None:
-        raise RuntimeError("NVD client not initialized - call _ensure_clients_initialized() first")
+    assert nvd_client is not None
     return nvd_client.get_cve(cve_id)
 
 
@@ -343,32 +332,34 @@ async def check_package_vulnerabilities(
 
         # Also check GitHub Advisory Database
         _ensure_clients_initialized()
-        if github_client is None:
-            raise RuntimeError("GitHub client not initialized")
+        assert github_client is not None
         try:
             github_advisories = github_client.search_advisories(package_name, version)
             # Convert GitHub advisories to a format compatible with OSV
             for advisory in github_advisories:
-                # Create a proper Vulnerability instance using the Pydantic model
-                # This is safer than using type() which could be exploited with malicious data
-                cvss_score = 0.0
-                if advisory.cvss and hasattr(advisory.cvss, 'score') and "/" in str(advisory.cvss.score):
-                    try:
-                        cvss_score = float(str(advisory.cvss.score).split("/")[-1])
-                    except (ValueError, TypeError, IndexError):
-                        cvss_score = 0.0
-
-                vuln = Vulnerability(
-                    id=advisory.ghsa_id,
-                    aliases=[advisory.cve_id] if advisory.cve_id else [],
-                    summary=advisory.summary,
-                    details=advisory.description,
-                    published=advisory.published_at,
-                    modified=advisory.updated_at,
-                    severity=[{"type": "CVSS_V3", "score": cvss_score}],
-                    affected=advisory.vulnerabilities if advisory.vulnerabilities else [],
-                    references=[{"url": ref} for ref in advisory.references] if advisory.references else [],
-                )
+                # Create a mock OSV vulnerability object
+                vuln = type(
+                    "obj",
+                    (object,),
+                    {
+                        "id": advisory.ghsa_id,
+                        "aliases": [advisory.cve_id] if advisory.cve_id else [],
+                        "summary": advisory.summary,
+                        "details": advisory.description,
+                        "published": advisory.published_at,
+                        "modified": advisory.updated_at,
+                        "severity": [
+                            {
+                                "type": "CVSS_V3",
+                                "score": float(advisory.cvss.score.split("/")[-1])
+                                if advisory.cvss and "/" in advisory.cvss.score
+                                else 0,
+                            }
+                        ],
+                        "affected": advisory.vulnerabilities,
+                        "references": [{"url": ref} for ref in advisory.references],
+                    },
+                )()
                 vulns.append(vuln)
         except Exception as e:
             logger.debug(f"GitHub API error: {e}")
@@ -554,8 +545,7 @@ def _parse_dependency_content(content: str, file_name: str) -> list[tuple[str, s
 async def _check_package(package_name: str, version_spec: str) -> list[Any]:
     """Check a package for vulnerabilities."""
     _ensure_clients_initialized()
-    if osv_client is None:
-        raise RuntimeError("OSV client not initialized")
+    assert osv_client is not None
 
     # For now, just check latest version if no version specified
     if not version_spec:
@@ -935,8 +925,7 @@ async def scan_installed_packages(
             f"Starting scan of installed packages (provided: {len(packages) if packages else 'None'})"
         )
         _ensure_clients_initialized()
-        if scanner is None:
-            raise RuntimeError("Dependency scanner not initialized")
+        assert scanner is not None
 
         # Use provided packages or scan installed
         if packages:
@@ -1042,8 +1031,7 @@ async def get_cve_details(
         if cve_id.upper().startswith("GHSA-"):
             # Try GitHub Advisory Database first
             try:
-                if github_client is None:
-                    raise RuntimeError("GitHub client not initialized")
+                assert github_client is not None
                 github_advisory = github_client.get_advisory_by_id(cve_id)
                 if github_advisory:
                     lines = [
@@ -1102,8 +1090,7 @@ async def get_cve_details(
 
             # Fall back to OSV
             # Use the global osv_client instance
-            if osv_client is None:
-                raise RuntimeError("OSV client not initialized")
+            assert osv_client is not None
             vuln = osv_client.get_vulnerability_by_id(cve_id)
             if vuln:
                 # Look for CVE in aliases
@@ -1133,8 +1120,7 @@ async def get_cve_details(
             if not cve:
                 # If not in NVD, try OSV as fallback
                 # Use the global osv_client instance
-                if osv_client is None:
-                    raise RuntimeError("OSV client not initialized")
+                assert osv_client is not None
                 vuln = osv_client.get_vulnerability_by_id(cve_id)
                 if vuln:
                     logger.info(f"{cve_id} not found in NVD, using OSV data")
@@ -1784,8 +1770,7 @@ async def validate_mcp_security(
             f"Starting MCP security validation for {agent_name} (mode={mode}, local_only={local_only})"
         )
         _ensure_clients_initialized()
-        if mcp_validator is None:
-            raise RuntimeError("MCP validator not initialized")
+        assert mcp_validator is not None
 
         # Update local_only setting if different
         mcp_validator.local_only = local_only
@@ -2270,8 +2255,7 @@ async def scan_dockerfile(
             return "Error: Must specify exactly one input: dockerfile_path, dockerfile_content, OR zip_content."
 
         _ensure_clients_initialized()
-        if docker_scanner is None:
-            raise RuntimeError("Docker scanner not initialized")
+        assert docker_scanner is not None
 
         # Use unified scanner for input handling
         scanner = get_unified_scanner()
@@ -3168,8 +3152,7 @@ async def scan_github_repo(
     See README.md for full disclaimer.
     """
     _ensure_clients_initialized()
-    if github_scanner is None:
-        raise RuntimeError("GitHub scanner not initialized")
+    assert github_scanner is not None
 
     try:
         # Convert depth string to enum
@@ -3734,7 +3717,7 @@ def main() -> None:
             # Import and initialize Google OAuth provider
             from .auth import GoogleOAuthProvider
 
-            auth_provider = GoogleOAuthProvider(
+            auth_provider = GoogleOAuthProvider(  # type: ignore[abstract]
                 client_id=client_id,
                 client_secret=client_secret,
                 base_url=base_url,
@@ -3754,19 +3737,27 @@ def main() -> None:
         # Note: FastMCP middleware is passed as raw functions, not Middleware objects
         # The middleware function signature is: async def middleware(request, call_next) -> response
 
-        # Use the original mcp instance to preserve tool registrations
-        # FastMCP doesn't transfer tool registrations when creating new instances,
-        # so we must use the same instance that has the @mcp.tool decorators applied
         if auth_provider:
-            # Configure the existing instance with authentication
-            # Note: FastMCP 2.x supports setting auth/middleware on existing instances
-            mcp._auth_provider = auth_provider  # type: ignore[attr-defined]
-            mcp._middleware = [url_detection_middleware]  # type: ignore[attr-defined]
-            logger.info("FastMCP server configured with Google OAuth authentication")
+            # Reinitialize with authentication and middleware
+            # Note: This creates a new instance, but the tools are already decorated
+            # with the original instance. In production, this would require
+            # re-registering all tools, but FastMCP handles this internally
+            # Explicitly set streamable_http_path to ensure OAuth resource registration
+            mcp = FastMCP(
+                "vulnicheck-mcp",
+                auth=auth_provider,
+                middleware=[url_detection_middleware],  # type: ignore[list-item]
+                streamable_http_path="/mcp"
+            )
+            logger.info("FastMCP server reinitialized with Google OAuth authentication")
             print("Server configured with Google OAuth authentication", file=sys.stderr)
         else:
-            # Configure the existing instance with middleware only
-            mcp._middleware = [url_detection_middleware]  # type: ignore[attr-defined]
+            # Reinitialize with middleware but no auth
+            mcp = FastMCP(
+                "vulnicheck-mcp",
+                middleware=[url_detection_middleware],  # type: ignore[list-item]
+                streamable_http_path="/mcp"
+            )
             logger.info("FastMCP server using default configuration (no authentication)")
             print("Server configured without authentication", file=sys.stderr)
     except Exception as e:

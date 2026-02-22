@@ -196,9 +196,8 @@ class DangerousCommandsRiskConfig:
         if self._patterns is None:
             self._load_patterns()
 
-        # Verify patterns were loaded successfully
-        if self._patterns is None or self._all_patterns is None:
-            raise RuntimeError("Failed to load dangerous command patterns")
+        assert self._patterns is not None
+        assert self._all_patterns is not None
 
         # Use all patterns if no categories specified
         if categories is None:
@@ -229,9 +228,7 @@ class DangerousCommandsRiskConfig:
         if self._patterns is None:
             self._load_patterns()
 
-        # Verify patterns were loaded successfully
-        if self._all_patterns is None:
-            raise RuntimeError("Failed to load dangerous command patterns")
+        assert self._all_patterns is not None
 
         return [p for p in self._all_patterns if p.risk_level == risk_level]
 

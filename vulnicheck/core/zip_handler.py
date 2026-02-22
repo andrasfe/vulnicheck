@@ -14,35 +14,25 @@ import time
 import zipfile
 from pathlib import Path
 
-from .exceptions import SecurityError
 from .space_manager import SpaceConfig, get_space_manager
 
 logger = logging.getLogger(__name__)
 
 
-class ZipSecurityError(SecurityError):
-    """Raised when zip file violates security constraints.
-
-    Inherits from SecurityError for consistent exception handling.
-    """
+class ZipSecurityError(Exception):
+    """Raised when zip file violates security constraints."""
     pass
 
 
 class ZipBombDetector:
-    """Detects potential zip bombs and suspicious zip files.
+    """Detects potential zip bombs and suspicious zip files."""
 
-    Uses conservative thresholds to prevent zip bomb attacks while still
-    allowing legitimate use cases. Implements cumulative size tracking
-    to prevent multi-file expansion attacks.
-    """
-
-    # Security thresholds - tightened for better protection
-    MAX_COMPRESSION_RATIO = 20  # Max 20:1 compression ratio (reduced from 100:1)
-    MAX_NESTED_ZIPS = 1  # Maximum nested zip files (reduced from 3)
-    MAX_FILES = 5000  # Maximum number of files in zip (reduced from 10000)
-    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB per file (reduced from 100MB)
+    # Security thresholds
+    MAX_COMPRESSION_RATIO = 100  # Max 100:1 compression ratio
+    MAX_NESTED_ZIPS = 3  # Maximum nested zip files
+    MAX_FILES = 10000  # Maximum number of files in zip
+    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB per file
     MAX_PATH_LENGTH = 260  # Maximum path length
-    MAX_CUMULATIVE_SIZE = 200 * 1024 * 1024  # 200MB cumulative extracted size
 
     # Dangerous file extensions
     DANGEROUS_EXTENSIONS = {
@@ -130,12 +120,6 @@ class ZipBombDetector:
                     f"Suspicious compression ratio: {compression_ratio:.1f}:1 > {self.MAX_COMPRESSION_RATIO}:1"
                 )
 
-        # Check cumulative extracted size (additional protection against multi-file attacks)
-        if total_uncompressed > self.MAX_CUMULATIVE_SIZE:
-            raise ZipSecurityError(
-                f"Cumulative extracted size too large: {total_uncompressed} > {self.MAX_CUMULATIVE_SIZE}"
-            )
-
         # Check total extracted size
         if total_uncompressed > self.max_extracted_size:
             raise ZipSecurityError(
@@ -186,10 +170,10 @@ class ZipHandler:
         self._extraction_lock = asyncio.Lock()
         self._active_extractions: dict[str, float] = {}  # extraction_id -> start_time
 
-        # Security limits - tightened for better protection
-        self.MAX_ZIP_SIZE = 50 * 1024 * 1024  # 50MB (reduced from 100MB)
-        self.MAX_EXTRACTED_SIZE = 200 * 1024 * 1024  # 200MB (reduced from 500MB)
-        self.EXTRACTION_TIMEOUT = 30  # seconds (reduced from 60)
+        # Security limits
+        self.MAX_ZIP_SIZE = 100 * 1024 * 1024  # 100MB
+        self.MAX_EXTRACTED_SIZE = 500 * 1024 * 1024  # 500MB
+        self.EXTRACTION_TIMEOUT = 60  # seconds
 
     async def extract_zip(self, zip_content: str, prefix: str = "vulnicheck_zip") -> tuple[Path, str]:
         """Extract zip content to temporary directory.
